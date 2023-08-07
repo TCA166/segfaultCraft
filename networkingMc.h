@@ -54,3 +54,6 @@ int64_t pingPong(int socketFd);
 
 //Starts the login process
 int startLogin(int socketFd, const char* name, const UUID* player);
+
+//Returns a pointer to a string within buff
+char* readString(const byte* buff, int* index);

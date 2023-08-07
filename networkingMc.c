@@ -133,19 +133,38 @@ byte* getPacket(int socketFd){
 }
 
 byte* readSocket(int socketFd){
-    int len = 0;
-    if(ioctl(socketFd, FIONREAD, &len) < 0){
-        return NULL;
+    {//first we check the length of data in socket 
+        int len = 0;
+        if(ioctl(socketFd, FIONREAD, &len) < 0){
+            return NULL;
+        }
+        //if that length is 0 then we quit out while we are ahead
+        if(len < 1){
+            errno = EOF;
+            return NULL;
+        }
     }
-    if(len < 1){
-        errno = EINVAL;
-        return NULL;
+    int size = 0;
+    int position = 0;
+    while(true){
+        byte curByte = 0;
+        while(read(socketFd, &curByte, 1) != 1);
+        size |= (curByte & SEGMENT_BITS) << position;
+        if((curByte & CONTINUE_BIT) == 0) break;
+        position += 7;
     }
-    byte* input = calloc(len, sizeof(byte));
-    if(read(socketFd, input, len) == 0){
-        errno = EOF;
-        free(input);
-        return NULL;
+    const int offset = (position / 7) + 1;
+    byte* input = calloc(size + offset, sizeof(byte));
+    writeVarInt(input, size);
+    int nRead = 0;
+    while(nRead < size){
+        int r = read(socketFd, input + offset + nRead, size - nRead);
+        if(r == EOF){
+            errno = EOF;
+            free(input);
+            return NULL;
+        }
+        nRead += r;
     }
     return input;
 }
@@ -159,7 +178,6 @@ packet parsePacket(const byte* data, int compression){
         int oldIndex = index;
         uLongf dataLength = (uLongf)readVarInt(data, &index);
         int compressedLen = packetLength - (index - oldIndex);
-        //TODO: THE PROBLEM IS THAT THE SERVER SENDS 3 PACKETS, ONLY TWO GET INPUT INTO THE STREAM
         if(dataLength >= compression){
             byte* compressed = (byte*)data + index;
             byte* uncompressed = NULL;
@@ -239,4 +257,13 @@ int startLogin(int socketFd, const char* name, const UUID* player){
         packetLen += sizeof(UUID);
     }
     return sendPacket(socketFd, packetLen, 0x00, data, NO_COMPRESSION);
+}
+
+char* readString(const byte* buff, int* index){
+    if(index == NULL){
+        int locIndex = 0;
+        index = &locIndex;
+    }
+    int msgLen = readVarInt(buff, index);
+    return (char*)(buff + *index);
 }

@@ -97,8 +97,7 @@ int main(int argc, char** argv){
             int offset = 0;
             switch(response.packetId){
                 case 0x00:; //Disconnected
-                    int msgLen = readVarInt(response.data, &offset);
-                    printf("Disconnected:%s\n", response.data + offset);
+                    printf("Disconnected:%s\n", readString(response.data, NULL));
                     return -1;
                     break;
                 case 0x01:; //Encryption request
@@ -141,27 +140,43 @@ int main(int argc, char** argv){
         int index = 0;
         packet* backlog = NULL;
         while(play){
-            if(backlog == NULL){ //if we aren't backlogging
-                if(response.packetId == 0x00){ //start backlogging
-                    //start the backlog
-                    backlog = calloc(MAX_PACKET, sizeof(packet));
-                }
-                else{
-                    //process the immediate packet
-                }   
-            }
-            else{ //if we are backlogging
-                if(response.packetId == 0x00){ //end backlogging
-                    //process the backlog
-                    free(backlog);
-                    backlog = NULL;
-                    index = 0;
-                }
-                else{
-                    //add the packet to the backlog
-                    backlog[index] = response;
-                    index++;
-                }
+            //there are some packet types that need immediate answer and separate processing
+            switch (response.packetId){
+                case 0x00:; //delimiter
+                    if(backlog == NULL){
+                        backlog = calloc(MAX_PACKET, sizeof(packet));
+                    }
+                    else{
+                        //process the backlog
+                        free(backlog);
+                        backlog = NULL;
+                        index = 0;
+                    }
+                    break;
+                case 0x1A:; //disconnect
+                    printf("Disconnected:%s\n", readString(response.data, NULL));
+                    return -1;
+                    break;
+                case 0x23:; //Keep alive
+                    int64_t aliveId = *(int64_t*)response.data;
+                    sendPacket(sockFd, sizeof(int64_t), 0x12, (byte*)&aliveId, compression);
+                    break;
+                case 0x28:; //login (play)
+                    loginPlay = true;
+                    break;
+                case 0x32:; //ping (the vanilla client doesn't respond)
+                    int32_t pingId = *(int32_t*)response.data;
+                    sendPacket(sockFd, sizeof(int32_t), 0x20, (byte*)&pingId, compression);
+                    break;
+                default:;
+                    if(backlog == NULL){
+                        //process the packet
+                    }
+                    else{
+                        backlog[index] = response;
+                        index++;
+                    }
+                    break;
             }
             byte* newPacket = NULL;
             while(newPacket == NULL){
