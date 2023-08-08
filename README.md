@@ -1,4 +1,4 @@
-# mcClient
+# segfaultCraft
 
 A C library for interacting with Minecraft servers
 
