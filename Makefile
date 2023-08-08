@@ -4,3 +4,7 @@ client: networkingMc.o client.c
 
 networkingMc.o: networkingMc.c
 	gcc $(CFLAGS) networkingMc.c -o networkingMc.o -c 
+
+clean:
+	rm -f *.o
+	rm -f *.ow

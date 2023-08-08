@@ -5,7 +5,6 @@
 #include <string.h>
 #include <time.h>
 
-#include <sys/ioctl.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -133,22 +132,20 @@ byte* getPacket(int socketFd){
 }
 
 byte* readSocket(int socketFd){
-    {//first we check the length of data in socket 
-        int len = 0;
-        if(ioctl(socketFd, FIONREAD, &len) < 0){
-            return NULL;
-        }
-        //if that length is 0 then we quit out while we are ahead
-        if(len < 1){
-            errno = EOF;
-            return NULL;
-        }
-    }
     int size = 0;
     int position = 0;
     while(true){
         byte curByte = 0;
-        while(read(socketFd, &curByte, 1) != 1);
+        int res = 0;
+        while((res = read(socketFd, &curByte, 1)) != 1){
+            if(res == EOF){
+                errno = EOF;
+                return NULL;
+            }
+            if(res < EOF){
+                return NULL;
+            }
+        }
         size |= (curByte & SEGMENT_BITS) << position;
         if((curByte & CONTINUE_BIT) == 0) break;
         position += 7;

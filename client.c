@@ -10,7 +10,6 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <sys/ioctl.h>
 
 #include "networkingMc.h"
 

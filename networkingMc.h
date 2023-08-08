@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>
+#include <inttypes.h>
 
 #define SEGMENT_BITS 0x7F
 #define CONTINUE_BIT 0x80
