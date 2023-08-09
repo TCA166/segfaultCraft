@@ -1,4 +1,5 @@
 #include "networkingMc.h"
+#include "packetDefinitions.h"
 
 #include <stdbool.h>
 #include <errno.h>
@@ -37,7 +38,7 @@ ssize_t handshake(int socketFd, const char* host, int protocol, short port, int 
     memcpy(handshake + off1 + off2, &port, sizeof(int16_t));
     size_t off3 = writeVarInt(handshake + off1 + off2 + sizeof(int16_t), nextState);
     handshakeLen = sizeof(int16_t) + off1 + off2 + off3;
-    ssize_t res = sendPacket(socketFd, handshakeLen, 0x00, handshake, NO_COMPRESSION);
+    ssize_t res = sendPacket(socketFd, handshakeLen, HANDSHAKE, handshake, NO_COMPRESSION);
     free(handshake);
     return res;
 }
@@ -178,7 +179,7 @@ byteArray readSocket(int socketFd){
 }
 
 packet parsePacket(byteArray* dataArray, int compression){
-    packet result;
+    packet result = nullPacket;
     int index = 0;
     bool alloc = false;
     byte* data = dataArray->bytes;
@@ -191,11 +192,8 @@ packet parsePacket(byteArray* dataArray, int compression){
             uncompressed = calloc(dataLength, sizeof(byte));
             alloc = true;
             if(uncompress(uncompressed, &dataLength, compressed, compressedLen) != Z_OK){
-                result.data = NULL;
-                result.size = -1;
-                result.packetId = 0;
                 free(uncompressed);
-                return result;
+                return nullPacket;
             } 
             data = uncompressed;
             index = 0;
@@ -222,7 +220,7 @@ int64_t pingPong(int socketFd){
     int64_t now = (int64_t)clock();
     byte timeBuff[sizeof(int64_t)] = {};
     memcpy(timeBuff, &now, sizeof(int64_t));
-    if(sendPacket(socketFd, sizeof(int64_t), 0x01, timeBuff, NO_COMPRESSION) < 1){
+    if(sendPacket(socketFd, sizeof(int64_t), PING_REQUEST, timeBuff, NO_COMPRESSION) < 1){
         return -1;
     }
     //pong
@@ -232,7 +230,7 @@ int64_t pingPong(int socketFd){
     }
     packet pong = parsePacket(&input, NO_COMPRESSION);
     free(input.bytes);
-    if(pong.data == NULL){
+    if(pong.data == NULL || pong.packetId != PING_RESPONSE){
         return -3;
     }
     int64_t diff = *((int64_t*)pong.data) - now;
@@ -251,7 +249,7 @@ int connectSocket(int socketFd, const char* host, int port){
     return connect(socketFd, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
 }
 
-int startLogin(int socketFd, const char* name, const UUID_t* player){
+ssize_t startLogin(int socketFd, const char* name, const UUID_t* player){
     byte data[16 + MAX_VAR_INT + 1 + sizeof(UUID_t)] = {};
     size_t offset = writeString(data, name, strlen(name));
     size_t packetLen = offset + 1;
@@ -264,7 +262,7 @@ int startLogin(int socketFd, const char* name, const UUID_t* player){
         memcpy(data + offset, player, sizeof(UUID_t));
         packetLen += sizeof(UUID_t);
     }
-    return sendPacket(socketFd, packetLen, 0x00, data, NO_COMPRESSION);
+    return sendPacket(socketFd, packetLen, LOGIN_START, data, NO_COMPRESSION);
 }
 
 char* readString(const byte* buff, int* index){

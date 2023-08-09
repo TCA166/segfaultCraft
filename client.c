@@ -18,6 +18,7 @@
 #endif
 
 #include "networkingMc.h"
+#include "packetDefinitions.h"
 
 //https://wiki.vg/Protocol#Definitions
 
@@ -45,7 +46,7 @@ int main(int argc, char** argv){
     //let's start by doing the handshake
     handshake(sockFd, host, protocol, port, 1);
     //request the status
-    requestPacket(sockFd, 0x00, NO_COMPRESSION);
+    requestPacket(sockFd, STATUS_REQUEST, NO_COMPRESSION);
     {
         //parse the status
         byteArray input = getPacket(sockFd);
@@ -55,7 +56,7 @@ int main(int argc, char** argv){
         }
         packet status = parsePacket(&input, NO_COMPRESSION);
         free(input.bytes);
-        if(status.packetId != 0x00){
+        if(status.packetId != STATUS_RESPONSE){
             fprintf(stderr, "Invalid packet received %d\n", status.packetId);
             return -1;
         }
@@ -101,14 +102,14 @@ int main(int argc, char** argv){
         while(login){ //loop for handling the login sequence
             int offset = 0;
             switch(response.packetId){
-                case 0x00:; //Disconnected
+                case DISCONNECT_LOGIN:; //Disconnected
                     printf("Disconnected:%s\n", readString(response.data, NULL));
                     return -1;
                     break;
-                case 0x01:; //Encryption request
+                case ENCRYPTION_REQUEST:; //Encryption request
                     
                     break;
-                case 0x02:; //Login successful
+                case LOGIN_SUCCESS:; //Login successful
                     given = *(UUID_t*)response.data;
                     int userNameLen = readVarInt(response.data + sizeof(UUID_t), &offset);
                     if(memcmp(username, (char*)response.data + sizeof(UUID_t) + offset, userNameLen) != 0){
@@ -117,7 +118,7 @@ int main(int argc, char** argv){
                     }
                     login = false;
                     break;
-                case 0x03:; //Set compression
+                case SET_COMPRESSION:; //Set compression
                     int compressionInput = readVarInt(response.data, NULL);
                     if(compressionInput > NO_COMPRESSION){
                         compression = compressionInput;
@@ -149,7 +150,7 @@ int main(int argc, char** argv){
         while(play){
             //there are some packet types that need immediate answer and separate processing
             switch (response.packetId){
-                case 0x00:; //delimiter
+                case BUNDLE_DELIMITER:; //delimiter
                     if(backlog == NULL){
                         backlog = calloc(MAX_PACKET, sizeof(packet));
                     }
@@ -160,20 +161,20 @@ int main(int argc, char** argv){
                         index = 0;
                     }
                     break;
-                case 0x1A:; //disconnect
+                case DISCONNECT_PLAY:; //disconnect
                     printf("Disconnected:%s\n", readString(response.data, NULL));
                     return -1;
                     break;
-                case 0x23:; //Keep alive
+                case KEEP_ALIVE:; //Keep alive
                     int64_t aliveId = *(int64_t*)response.data;
-                    sendPacket(sockFd, sizeof(int64_t), 0x12, (byte*)&aliveId, compression);
+                    sendPacket(sockFd, sizeof(int64_t), KEEP_ALIVE_2, (byte*)&aliveId, compression);
                     break;
-                case 0x28:; //login (play)
+                case LOGIN_PLAY:; //login (play)
                     loginPlay = true;
                     break;
-                case 0x32:; //ping (the vanilla client doesn't respond)
+                case PING_PLAY:; //ping (the vanilla client doesn't respond)
                     int32_t pingId = *(int32_t*)response.data;
-                    sendPacket(sockFd, sizeof(int32_t), 0x20, (byte*)&pingId, compression);
+                    sendPacket(sockFd, sizeof(int32_t), PONG_PLAY, (byte*)&pingId, compression);
                     break;
                 default:;
                     if(backlog == NULL){
