@@ -11,8 +11,8 @@
 
 #include <zlib.h>
 
-//Reads the socket
-byte* readSocket(int socketFd);
+//Reads the socket and returns a byteArray object, In case of error errno is set and byteArray.bytes == NULL
+byteArray readSocket(int socketFd);
 
 ssize_t requestPacket(int socketFd, int packetType, int compression){
     return sendPacket(socketFd, 0, packetType, NULL, compression);
@@ -117,21 +117,22 @@ int readVarInt(const byte* buff, int* index){
     return value;
 }
 
-byte* getPacket(int socketFd){
+byteArray getPacket(int socketFd){
     time_t start = clock();
-    byte* input = NULL;
-    while(input == NULL){
-        input = readSocket(socketFd);
+    byteArray packet = {NULL, 0};
+    while(packet.bytes == NULL){
+        packet = readSocket(socketFd);
         time_t now = clock();
         if(now - start > timeout){
             errno = ETIMEDOUT;
-            return NULL;
+            return packet;
         }
     }
-    return input;
+    return packet;
 }
 
-byte* readSocket(int socketFd){
+byteArray readSocket(int socketFd){
+    byteArray result = {NULL, 0};
     int size = 0;
     int position = 0;
     while(true){
@@ -140,41 +141,40 @@ byte* readSocket(int socketFd){
         while((res = read(socketFd, &curByte, 1)) != 1){
             if(res == EOF){
                 errno = EOF;
-                return NULL;
+                return result;
             }
             if(res < EOF){
-                return NULL;
+                return result;
             }
         }
         size |= (curByte & SEGMENT_BITS) << position;
         if((curByte & CONTINUE_BIT) == 0) break;
         position += 7;
     }
-    const int offset = (position / 7) + 1;
-    byte* input = calloc(size + offset, sizeof(byte));
-    writeVarInt(input, size);
+    result.len = size;
+    byte* input = calloc(size, sizeof(byte));
     int nRead = 0;
     while(nRead < size){
-        int r = read(socketFd, input + offset + nRead, size - nRead);
+        int r = read(socketFd, input + nRead, size - nRead);
         if(r == EOF){
             errno = EOF;
             free(input);
-            return NULL;
+            return result;
         }
         nRead += r;
     }
-    return input;
+    result.bytes = input;
+    return result;
 }
 
-packet parsePacket(const byte* data, int compression){
+packet parsePacket(byteArray* dataArray, int compression){
     packet result;
     int index = 0;
     bool alloc = false;
+    byte* data = dataArray->bytes;
     if(compression > -1){
-        int packetLength = readVarInt(data, &index);
-        int oldIndex = index;
         uLongf dataLength = (uLongf)readVarInt(data, &index);
-        int compressedLen = packetLength - (index - oldIndex);
+        int compressedLen = dataArray->len - index;
         if(dataLength >= compression){
             byte* compressed = (byte*)data + index;
             byte* uncompressed = NULL;
@@ -196,7 +196,7 @@ packet parsePacket(const byte* data, int compression){
         }
     }
     else{
-        result.size = readVarInt(data, &index);
+        result.size = dataArray->len;
     }
     result.packetId = readVarInt(data, &index);
     result.data = calloc(result.size - 1, sizeof(byte));
@@ -216,11 +216,12 @@ int64_t pingPong(int socketFd){
         return -1;
     }
     //pong
-    byte* input = getPacket(socketFd);
-    if(input == NULL){
+    byteArray input = getPacket(socketFd);
+    if(input.bytes == NULL){
         return -2;
     }
-    packet pong = parsePacket(input, NO_COMPRESSION);
+    packet pong = parsePacket(&input, NO_COMPRESSION);
+    free(input.bytes);
     if(pong.data == NULL){
         return -3;
     }

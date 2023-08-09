@@ -17,11 +17,18 @@ typedef unsigned char byte;
 
 typedef __uint128_t UUID;
 
+//A minecraft style packet
 typedef struct packet{
-    int size;
+    int size; //The size of the entire packet, so sizeof(data) + sizeof(packetId)
     byte packetId;
     byte* data;
 } packet;
+
+//An array with an attached size_t
+typedef struct byteArray{
+    byte* bytes;
+    size_t len;
+} byteArray;
 
 //Connects the given socket to the given host to the given port
 int connectSocket(int socketFd, const char* host, int port);
@@ -39,7 +46,7 @@ size_t writeString(byte* buff, const char* string, int stringLen);
 int readVarInt(const byte* buff, int* index);
 
 //Tries getting the raw packet data as long as it doesn't timeout
-byte* getPacket(int socketFd);
+byteArray getPacket(int socketFd);
 
 //Requests a packet from server in the correct format
 ssize_t requestPacket(int socketFd, int packetType, int compression);
@@ -48,7 +55,7 @@ ssize_t requestPacket(int socketFd, int packetType, int compression);
 ssize_t handshake(int socketFd, const char* host, int protocol, short port, int nextState);
 
 //Parses the raw packet data into a nice struct
-packet parsePacket(const byte* data, int compression);
+packet parsePacket(byteArray* dataArray, int compression);
 
 //Performs a ping-pong interaction with the server and returns the delay
 int64_t pingPong(int socketFd);

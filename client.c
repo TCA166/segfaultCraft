@@ -42,13 +42,13 @@ int main(int argc, char** argv){
     requestPacket(sockFd, 0x00, NO_COMPRESSION);
     {
         //parse the status
-        byte* input = getPacket(sockFd);
-        if(input == NULL){
+        byteArray input = getPacket(sockFd);
+        if(input.bytes == NULL){
             perror("Couldn't get the packet");
             return -1;
         }
-        packet status = parsePacket(input, NO_COMPRESSION);
-        free(input);
+        packet status = parsePacket(&input, NO_COMPRESSION);
+        free(input.bytes);
         if(status.packetId != 0x00){
             fprintf(stderr, "Invalid packet received %d\n", status.packetId);
             return -1;
@@ -76,17 +76,17 @@ int main(int argc, char** argv){
     startLogin(sockFd, username, NULL);
     packet response;
     { //parse login response
-        byte* loginResponse = getPacket(sockFd);
-        if(loginResponse == NULL){
+        byteArray loginResponse = getPacket(sockFd);
+        if(loginResponse.bytes == NULL){
             perror("Login failed");
             return -1;
         }
-        response = parsePacket(loginResponse, NO_COMPRESSION);
+        response = parsePacket(&loginResponse, NO_COMPRESSION);
         if(packetNull(response)){
             perror("Packet parsing failed");
             return -1;
         }
-        free(loginResponse);
+        free(loginResponse.bytes);
     }
     UUID given = 0;
     int compression = NO_COMPRESSION;
@@ -121,11 +121,13 @@ int main(int argc, char** argv){
                     fprintf(stderr, "Unexpected packet:%d", response.packetId);
                     return -1;
             }
-            byte* newPacket = NULL;
-            while(newPacket == NULL){
+            free(response.data);
+            byteArray newPacket = {NULL, 0};
+            while(newPacket.bytes == NULL){
                 newPacket = getPacket(sockFd);
             }
-            response = parsePacket(newPacket, compression);
+            response = parsePacket(&newPacket, compression);
+            free(newPacket.bytes);
             if(packetNull(response)){
                 perror("Packet parsing failed");
                 return -1;
@@ -177,11 +179,13 @@ int main(int argc, char** argv){
                     }
                     break;
             }
-            byte* newPacket = NULL;
-            while(newPacket == NULL){
+            byteArray newPacket = {NULL, 0};
+            while(newPacket.bytes == NULL){
                 newPacket = getPacket(sockFd);
             }
-            response = parsePacket(newPacket, compression);
+            free(response.data);
+            response = parsePacket(&newPacket, compression);
+            free(newPacket.bytes);
             if(packetNull(response)){
                 perror("Packet parsing failed");
                 return -1;
