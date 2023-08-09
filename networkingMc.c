@@ -5,11 +5,21 @@
 #include <string.h>
 #include <time.h>
 
+#if defined(__unix__)
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#elif defined(_WIN32)
+#include <conio.h>
+#include <winsock2.h>
+#include <io.h>
+#define bzero(b,len) (memset((b), '\0', (len)), (void) 0)  
+#endif
 
 #include <zlib.h>
+
+#define SEGMENT_BITS 0x7F
+#define CONTINUE_BIT 0x80
 
 //Reads the socket and returns a byteArray object, In case of error errno is set and byteArray.bytes == NULL
 byteArray readSocket(int socketFd);
@@ -123,7 +133,7 @@ byteArray getPacket(int socketFd){
     while(packet.bytes == NULL){
         packet = readSocket(socketFd);
         time_t now = clock();
-        if(now - start > timeout){
+        if(now - start > TCP_TIMEOUT){
             errno = ETIMEDOUT;
             return packet;
         }
@@ -241,18 +251,18 @@ int connectSocket(int socketFd, const char* host, int port){
     return connect(socketFd, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
 }
 
-int startLogin(int socketFd, const char* name, const UUID* player){
-    byte data[16 + MAX_VAR_INT + 1 + sizeof(UUID)] = {};
+int startLogin(int socketFd, const char* name, const UUID_t* player){
+    byte data[16 + MAX_VAR_INT + 1 + sizeof(UUID_t)] = {};
     size_t offset = writeString(data, name, strlen(name));
     size_t packetLen = offset + 1;
     if(player == NULL){
         data[offset] = false;
-        bzero(data + offset, sizeof(UUID));
+        bzero(data + offset, sizeof(UUID_t));
     }
     else{
         data[offset] = true;
-        memcpy(data + offset, player, sizeof(UUID));
-        packetLen += sizeof(UUID);
+        memcpy(data + offset, player, sizeof(UUID_t));
+        packetLen += sizeof(UUID_t);
     }
     return sendPacket(socketFd, packetLen, 0x00, data, NO_COMPRESSION);
 }

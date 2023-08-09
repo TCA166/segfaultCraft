@@ -3,11 +3,9 @@
 #include <sys/types.h>
 #include <inttypes.h>
 
-#define SEGMENT_BITS 0x7F
-#define CONTINUE_BIT 0x80
 #define MAX_VAR_INT 5
 #define MAX_VAR_LONG 10
-#define timeout 500000 //ms
+#define TCP_TIMEOUT 500000 //ms
 #define NO_COMPRESSION -1
 #define MAX_PACKET 4096
 
@@ -15,7 +13,7 @@
 
 typedef unsigned char byte;
 
-typedef __uint128_t UUID;
+typedef __uint128_t UUID_t;
 
 //A minecraft style packet
 typedef struct packet{
@@ -61,7 +59,7 @@ packet parsePacket(byteArray* dataArray, int compression);
 int64_t pingPong(int socketFd);
 
 //Starts the login process
-int startLogin(int socketFd, const char* name, const UUID* player);
+int startLogin(int socketFd, const char* name, const UUID_t* player);
 
 //Returns a pointer to a string within buff
 char* readString(const byte* buff, int* index);

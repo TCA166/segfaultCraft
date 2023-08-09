@@ -6,10 +6,16 @@
 #include <errno.h>
 #include <time.h>
 
+#if defined(__unix__)
 #include <sys/socket.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#elif defined(_WIN32)
+#include <conio.h>
+#include <winsock2.h>
+#include <io.h>
+#endif
 
 #include "networkingMc.h"
 
@@ -88,7 +94,7 @@ int main(int argc, char** argv){
         }
         free(loginResponse.bytes);
     }
-    UUID given = 0;
+    UUID_t given = 0;
     int compression = NO_COMPRESSION;
     {//Login state
         bool login = true;
@@ -103,9 +109,9 @@ int main(int argc, char** argv){
                     
                     break;
                 case 0x02:; //Login successful
-                    given = *(UUID*)response.data;
-                    int userNameLen = readVarInt(response.data + sizeof(UUID), &offset);
-                    if(memcmp(username, (char*)response.data + sizeof(UUID) + offset, userNameLen) != 0){
+                    given = *(UUID_t*)response.data;
+                    int userNameLen = readVarInt(response.data + sizeof(UUID_t), &offset);
+                    if(memcmp(username, (char*)response.data + sizeof(UUID_t) + offset, userNameLen) != 0){
                         fprintf(stderr, "Server returned different username to the one given\n");
                         return -1;
                     }
