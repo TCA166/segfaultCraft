@@ -110,7 +110,7 @@ ssize_t sendPacket(int socketFd, int size, int packetId, const byte* data, int c
 
 byteArray getPacketBytes(int socketFd){
     time_t start = clock();
-    byteArray packet = {NULL, 0};
+    byteArray packet = nullByteArray;
     while(packet.bytes == NULL){
         packet = readSocket(socketFd);
         time_t now = clock();
@@ -123,7 +123,7 @@ byteArray getPacketBytes(int socketFd){
 }
 
 byteArray readSocket(int socketFd){
-    byteArray result = {NULL, 0};
+    byteArray result = nullByteArray;
     int size = 0;
     int position = 0;
     while(true){
@@ -264,4 +264,69 @@ char* getServerStatus(int socketFd){
     free(status.data);
     //Might use cJson to parse this
     return rawJson;
+}
+
+int loginState(int socketFd, packet* response, UUID_t* given, const char* username, int* compression){
+    bool login = true;
+    while(login){ //loop for handling the login sequence
+        int offset = 0;
+        switch(response->packetId){
+            case DISCONNECT_LOGIN:; //Disconnected
+                printf("Disconnected:%s\n", readString(response->data, NULL));
+                return 1;
+                break;
+            case ENCRYPTION_REQUEST:; //We are dealing with an online only server... shit
+                //read the data from the request
+                char* serverId = readString(response->data, &offset);
+                byteArray publicKey = readByteArray(response->data, &offset);
+                byteArray verifyToken = readByteArray(response->data, &offset);
+                //generate the secret
+                byte secret[16] = {};
+                if(getentropy(secret, 16) < 0){
+                    return -1;
+                }
+                //now we need to encrypt using AES/CFB8 stream cipher
+                free(serverId);
+                free(publicKey.bytes);
+                free(verifyToken.bytes);
+                break;
+            case LOGIN_SUCCESS:; //Login successful
+                *given = *(UUID_t*)response->data;
+                offset += sizeof(UUID_t);
+                int userNameLen = readVarInt(response->data, &offset);
+                if(memcmp(username, (char*)response->data + offset, userNameLen) != 0){
+                    errno = EINVAL;
+                    return -2;
+                }
+                offset += userNameLen;
+                int numProperties = readVarInt(response->data, &offset);
+                login = false;
+                break;
+            case SET_COMPRESSION:; //Set compression
+                int compressionInput = readVarInt(response->data, NULL);
+                if(compressionInput > NO_COMPRESSION){
+                    *compression = compressionInput;
+                }
+                break;
+            case LOGIN_PLUGIN_REQUEST:;
+                //Just like the notchian client we send an answer that we didn't understand
+                int messageId = readVarInt(response->data, &offset);
+                //char* channel = readString(response.data, &offset);
+                //free(channel);
+                byte packet[MAX_VAR_INT + 1] = {};
+                int off = writeVarInt(packet, messageId);
+                packet[off] = false;
+                sendPacket(socketFd, off + 1, LOGIN_PLUGIN_RESPONSE, packet, *compression);
+                break;
+            default:;
+                errno = EPROTO;
+                return -3;
+        }
+        free(response->data);
+        *response = getPacket(socketFd, *compression);
+        if(packetNull((*response))){
+            return -4;
+        }
+    }
+    return 0;
 }

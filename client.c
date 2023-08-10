@@ -9,12 +9,15 @@
 #if defined(__unix__)
 #include <sys/socket.h>
 #include <unistd.h>
+#include <sys/random.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #elif defined(_WIN32)
 #include <conio.h>
 #include <winsock2.h>
 #include <io.h>
+#include <bcrypt.h> 
+#define getentropy(ptr, len) BCryptGenRandom(NULL, ptr, len, BCRYPT_USE_SYSTEM_PREFERRED_RNG) 
 #endif
 
 #include "networkingMc.h"
@@ -25,7 +28,7 @@
 int main(int argc, char** argv){
     if(argc < 4){
         fprintf(stderr, "Invalid number of arguments.");
-        return -1;
+        return EXIT_FAILURE;
     }
     char* host = argv[1];
     int16_t port = (int16_t)atoi(argv[2]);
@@ -34,14 +37,14 @@ int main(int argc, char** argv){
     int sockFd = socket(AF_INET, SOCK_STREAM, 0);
     if(sockFd < 0){
         perror("Socket creation failed");
-        return -1;
+        return EXIT_FAILURE;
     }
     if(connectSocket(sockFd, host, port) != 0){
         perror("Connection to server failed");
-        return -1;
+        return EXIT_FAILURE;
     }
     printf("Connected to the server\n");
-    fflush(stdout);
+    //fflush(stdout);
     //now we are ready to communicate
     //let's start by doing the handshake
     handshake(sockFd, host, protocol, port, STATUS_STATE);
@@ -49,7 +52,7 @@ int main(int argc, char** argv){
     char* status = getServerStatus(sockFd);
     if(status == NULL){
         fprintf(stderr, "Invalid packet received instead of the server status\n");
-        return -1;
+        return EXIT_FAILURE;
     }
     free(status);
     //do the ping pong
@@ -60,56 +63,20 @@ int main(int argc, char** argv){
     sockFd = socket(AF_INET, SOCK_STREAM, 0);
     if(sockFd < 0){
         perror("Socket creation failed");
-        return -1;
+        return EXIT_FAILURE;
     }
     connectSocket(sockFd, host, port);
     handshake(sockFd, host, protocol, port, LOGIN_STATE);
     const char* username = "Botty";
+    UUID_t player = 0;
     startLogin(sockFd, username, NULL);
     packet response = getPacket(sockFd, NO_COMPRESSION);
-    { //parse login response
-
-    }
-    UUID_t given = 0;
     int compression = NO_COMPRESSION;
-    {//Login state
-        bool login = true;
-        while(login){ //loop for handling the login sequence
-            int offset = 0;
-            switch(response.packetId){
-                case DISCONNECT_LOGIN:; //Disconnected
-                    printf("Disconnected:%s\n", readString(response.data, NULL));
-                    return -1;
-                    break;
-                case ENCRYPTION_REQUEST:; //Encryption request
-                    
-                    break;
-                case LOGIN_SUCCESS:; //Login successful
-                    given = *(UUID_t*)response.data;
-                    int userNameLen = readVarInt(response.data + sizeof(UUID_t), &offset);
-                    if(memcmp(username, (char*)response.data + sizeof(UUID_t) + offset, userNameLen) != 0){
-                        fprintf(stderr, "Server returned different username to the one given\n");
-                        return -1;
-                    }
-                    login = false;
-                    break;
-                case SET_COMPRESSION:; //Set compression
-                    int compressionInput = readVarInt(response.data, NULL);
-                    if(compressionInput > NO_COMPRESSION){
-                        compression = compressionInput;
-                    }
-                    break;
-                default:;
-                    fprintf(stderr, "Unexpected packet:%d", response.packetId);
-                    return -1;
-            }
-            free(response.data);
-            response = getPacket(sockFd, compression);
-            if(packetNull(response)){
-                perror("Error while getting a packet");
-                return -1;
-            }
-        }
+    //Login state
+    int result = loginState(sockFd, &response, &player, username, &compression);
+    if(result != 0){
+        perror("Error encountered during login");
+        return result;
     }
     printf("Successfully logged in\n");
     { //Play state
@@ -133,7 +100,7 @@ int main(int argc, char** argv){
                     break;
                 case DISCONNECT_PLAY:; //disconnect
                     printf("Disconnected:%s\n", readString(response.data, NULL));
-                    return -1;
+                    return EXIT_SUCCESS;
                     break;
                 case KEEP_ALIVE:; //Keep alive
                     int64_t aliveId = *(int64_t*)response.data;
@@ -160,10 +127,10 @@ int main(int argc, char** argv){
             response = getPacket(sockFd, compression);
             if(packetNull(response)){
                 perror("Error while getting a packet");
-                return -1;
+                return EXIT_FAILURE;
             }
         }
     }
-    return 0;
+    return EXIT_SUCCESS;
 }
 

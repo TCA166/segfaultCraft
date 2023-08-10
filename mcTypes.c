@@ -6,12 +6,6 @@
 
 #include "mcTypes.h"
 
-size_t writeString(byte* buff, const char* string, int stringLen){
-    size_t offset = writeVarInt(buff, stringLen);
-    strcpy(buff + offset, string);
-    return stringLen + offset;
-}
-
 size_t writeVarInt(byte* buff, int32_t value){
     short i = 0;
     while(true){
@@ -49,11 +43,44 @@ int32_t readVarInt(const byte* buff, int* index){
     return value;
 }
 
+size_t writeString(byte* buff, const char* string, int stringLen){
+    for(int i = stringLen - 1; i >= 0; i--){
+        if(string[i] == '\0'){
+            stringLen--;
+        }
+    }
+    size_t offset = writeVarInt(buff, stringLen);
+    memcpy(buff + offset, string, stringLen);
+    return stringLen + offset;
+}
+
 char* readString(const byte* buff, int* index){
     if(index == NULL){
         int locIndex = 0;
         index = &locIndex;
     }
     int msgLen = readVarInt(buff, index);
-    return (char*)(buff + *index);
+    char* result = calloc(msgLen + 1, sizeof(char));
+    memcpy(result, buff + *index, msgLen);
+    return result;
+}
+
+size_t writeByteArray(byte* buff, byteArray arr){
+    size_t offset = writeVarInt(buff, arr.len);
+    memcpy(buff + offset, arr.bytes, arr.len);
+    return offset + arr.len;
+}
+
+byteArray readByteArray(const byte* buff, int* index){
+    if(index == NULL){
+        int locIndex = 0;
+        index = &locIndex;
+    }
+    byteArray arr = nullByteArray;
+    int arrLen = readVarInt(buff, index);
+    arr.len = arrLen;
+    byte* val = calloc(arrLen, sizeof(byte));
+    memcpy(val, buff + *index, arrLen);
+    arr.bytes = val;
+    return arr;
 }

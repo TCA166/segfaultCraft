@@ -15,8 +15,13 @@ typedef struct byteArray{
     size_t len;
 } byteArray;
 
+#define nullByteArray (byteArray){NULL, 0}
+
 #define SEGMENT_BITS 0x7F
 #define CONTINUE_BIT 0x80
+
+#define MAX_VAR_INT 4
+#define MAX_VAR_LONG 8
 
 /*! 
  @brief Writes the given value to the buffer as VarInt
@@ -44,9 +49,25 @@ int32_t readVarInt(const byte* buff, int* index);
 size_t writeString(byte* buff, const char* string, int stringLen);
 
 /*!
- @brief Parses an encoded string
+ @brief Parses an encoded Minecraft string and writes it into a newly allocated buffer making it NULL terminated
  @param buff the buffer within which the string is encoded
  @param index the index at which the string is encoded, is incremented by the number of bytes the string and VarInt took
  @return the pointer to the encoded string 
 */
 char* readString(const byte* buff, int* index);
+
+/*!
+ @brief Writes a byteArray to the buffer
+ @param buff the buffer to which the byteArray should be written to
+ @param arr the byteArray that should be written
+ @return the number of bytes written 
+*/
+size_t writeByteArray(byte* buff, byteArray arr);
+
+/*!
+ @brief Parses an encoded Minecraft byte array and writes it into a newly allocated buffer
+ @param buff the buffer to read from
+ @param index the index at which the encoded byte array is encoded. Gets incremented by the size of encoded values
+ @return a byte array
+*/
+byteArray readByteArray(const byte* buff, int* index);

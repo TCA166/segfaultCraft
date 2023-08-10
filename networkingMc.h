@@ -6,8 +6,6 @@
 
 //Constants definitions
 
-#define MAX_VAR_INT 5
-#define MAX_VAR_LONG 10
 #define TCP_TIMEOUT 500000 //ms
 #define NO_COMPRESSION -1
 #define MAX_PACKET 4096
@@ -111,3 +109,14 @@ ssize_t startLogin(int socketFd, const char* name, const UUID_t* player);
  @return raw json the server responded with
 */
 char* getServerStatus(int socketFd);
+
+/*!
+ @brief Performs the login process
+ @param socketFd the socket file descriptor
+ @param response pointer to the most recent response in login state, gets updated to the most recent received packet
+ @param given the current player UUID, gets updated to the UUID provided by the server
+ @param username the player username
+ @param compression pointer to the current compression level
+ @return the result of the process. Negative values indicate errors, positive values indicates graceful disconnects
+*/
+int loginState(int socketFd, packet* response, UUID_t* given, const char* username, int* compression);
