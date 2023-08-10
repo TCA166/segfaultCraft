@@ -44,29 +44,14 @@ int main(int argc, char** argv){
     fflush(stdout);
     //now we are ready to communicate
     //let's start by doing the handshake
-    handshake(sockFd, host, protocol, port, 1);
+    handshake(sockFd, host, protocol, port, STATUS_STATE);
     //request the status
-    requestPacket(sockFd, STATUS_REQUEST, NO_COMPRESSION);
-    {
-        //parse the status
-        byteArray input = getPacket(sockFd);
-        if(input.bytes == NULL){
-            perror("Couldn't get the packet");
-            return -1;
-        }
-        packet status = parsePacket(&input, NO_COMPRESSION);
-        free(input.bytes);
-        if(status.packetId != STATUS_RESPONSE){
-            fprintf(stderr, "Invalid packet received %d\n", status.packetId);
-            return -1;
-        }
-        int offset = 0;
-        int length = readVarInt(status.data, &offset);
-        char* rawJson = calloc(length, 1);
-        memcpy(rawJson, status.data + offset, length);
-        free(status.data);
-        //Might use cJson to parse this
+    char* status = getServerStatus(sockFd);
+    if(status == NULL){
+        fprintf(stderr, "Invalid packet received instead of the server status\n");
+        return -1;
     }
+    free(status);
     //do the ping pong
     int64_t delay = pingPong(sockFd);
     printf("%ld time difference detected.\n", delay);
@@ -78,22 +63,12 @@ int main(int argc, char** argv){
         return -1;
     }
     connectSocket(sockFd, host, port);
-    handshake(sockFd, host, protocol, port, 2);
+    handshake(sockFd, host, protocol, port, LOGIN_STATE);
     const char* username = "Botty";
     startLogin(sockFd, username, NULL);
-    packet response;
+    packet response = getPacket(sockFd, NO_COMPRESSION);
     { //parse login response
-        byteArray loginResponse = getPacket(sockFd);
-        if(loginResponse.bytes == NULL){
-            perror("Login failed");
-            return -1;
-        }
-        response = parsePacket(&loginResponse, NO_COMPRESSION);
-        if(packetNull(response)){
-            perror("Packet parsing failed");
-            return -1;
-        }
-        free(loginResponse.bytes);
+
     }
     UUID_t given = 0;
     int compression = NO_COMPRESSION;
@@ -129,14 +104,9 @@ int main(int argc, char** argv){
                     return -1;
             }
             free(response.data);
-            byteArray newPacket = {NULL, 0};
-            while(newPacket.bytes == NULL){
-                newPacket = getPacket(sockFd);
-            }
-            response = parsePacket(&newPacket, compression);
-            free(newPacket.bytes);
+            response = getPacket(sockFd, compression);
             if(packetNull(response)){
-                perror("Packet parsing failed");
+                perror("Error while getting a packet");
                 return -1;
             }
         }
@@ -186,15 +156,10 @@ int main(int argc, char** argv){
                     }
                     break;
             }
-            byteArray newPacket = {NULL, 0};
-            while(newPacket.bytes == NULL){
-                newPacket = getPacket(sockFd);
-            }
             free(response.data);
-            response = parsePacket(&newPacket, compression);
-            free(newPacket.bytes);
+            response = getPacket(sockFd, compression);
             if(packetNull(response)){
-                perror("Packet parsing failed");
+                perror("Error while getting a packet");
                 return -1;
             }
         }

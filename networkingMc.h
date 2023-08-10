@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <inttypes.h>
+#include "mcTypes.h"
 
 //Constants definitions
 
@@ -10,6 +11,9 @@
 #define TCP_TIMEOUT 500000 //ms
 #define NO_COMPRESSION -1
 #define MAX_PACKET 4096
+
+#define STATUS_STATE 1
+#define LOGIN_STATE 2
 
 //Macros
 
@@ -24,10 +28,6 @@
 
 //Types
 
-typedef unsigned char byte;
-
-typedef __uint128_t UUID_t;
-
 /*!
  @struct packet
  @brief A Minecraft style packet
@@ -41,17 +41,6 @@ typedef struct packet{
     byte* data;
 } packet;
 
-/*!
- @struct byteArray
- @brief An array with an attached size_t
- @param bytes the array itself
- @param len the length of the bytes array
-*/
-typedef struct byteArray{
-    byte* bytes;
-    size_t len;
-} byteArray;
-
 //Functions
 
 /*! 
@@ -64,14 +53,6 @@ typedef struct byteArray{
 int connectSocket(int socketFd, const char* host, int port);
 
 /*! 
- @brief Writes the given value to the buffer as VarInt
- @param buff pointer to an allocated buffer where the VarInt bytes shall be written to
- @param value the value that will be written to the buffer
- @return the number of bytes written to buff
-*/
-size_t writeVarInt(byte* buff, int value);
-
-/*! 
  @brief Sends the given packet to the Minecraft server in the correct format
  @param socketFd file descriptor that identifies a properly configured socket
  @param size the size of data
@@ -82,29 +63,13 @@ size_t writeVarInt(byte* buff, int value);
 */
 ssize_t sendPacket(int socketFd, int size, int packetId, const byte* data, int compression);
 
-/*! 
- @brief Writes the given string to the buffer with a VarInt length preceding it
- @param buff the buffer that the string will be written to
- @param string the string that is to be written to buff
- @param stringLen the length of string
- @return the number of bytes written, including the size of VarInt in front of the string
-*/
-size_t writeString(byte* buff, const char* string, int stringLen);
-
-/*! 
- @brief Reads the VarInt from buffer at the given index
- @param buff the buffer from which to read the value
- @param index the index at which the value should be read, is incremented by the number of bytes the VarInt took
- @return the int encoded as VarInt in buff at index
-*/
-int readVarInt(const byte* buff, int* index);
-
 /*!
- @brief Tries getting the raw packet data as long as it doesn't timeout
+ @brief Reads the packet form socket, and parses it. Will attempt to read the packet and parse it until timeout or error, at which point it will return a NULL 
  @param socketFd the socket file descriptor
- @return the packet data alongside the length of the data as byteArray
+ @param compression the established compression level
+ @return a parsed packet, or a nullPacket
 */
-byteArray getPacket(int socketFd);
+packet getPacket(int socketFd, int compression);
 
 /*!
  @brief Requests a packet from server in the correct format
@@ -125,14 +90,6 @@ ssize_t requestPacket(int socketFd, int packetType, int compression);
 ssize_t handshake(int socketFd, const char* host, int protocol, short port, int nextState);
 
 /*!
- @brief Parses the raw packet data into a nice struct
- @param dataArray pointer to the packet data alongside it's size
- @param compression the established compression level
- @return the packet struct
-*/
-packet parsePacket(byteArray* dataArray, int compression);
-
-/*!
  @brief Performs a ping-pong interaction with the server and returns the delay
  @param socketFd the socket file descriptor
  @return the difference between the value sent to the server in Ping and the value received in Pong, or < 0 for error
@@ -149,9 +106,8 @@ int64_t pingPong(int socketFd);
 ssize_t startLogin(int socketFd, const char* name, const UUID_t* player);
 
 /*!
- @brief Parses an encoded string
- @param buff the buffer within which the string is encoded
- @param index the index at which the string is encoded, is incremented by the number of bytes the string and VarInt took
- @return the pointer to the encoded string 
+ @brief Requests the status from server after handshake indicating STATUS_STATE
+ @param socketFd the socket file descriptor
+ @return raw json the server responded with
 */
-char* readString(const byte* buff, int* index);
+char* getServerStatus(int socketFd);

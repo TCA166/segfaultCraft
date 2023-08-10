@@ -19,11 +19,34 @@
 
 #include <zlib.h>
 
-#define SEGMENT_BITS 0x7F
-#define CONTINUE_BIT 0x80
+//Private functions
 
-//Reads the socket and returns a byteArray object, In case of error errno is set and byteArray.bytes == NULL
+/*!
+ @brief Reads the socket
+ @param socketFd the socket file descriptor
+ @return the byteArray stored within the socket, or a NULL byteArray on error or EOF
+*/
 byteArray readSocket(int socketFd);
+
+/*!
+ @brief Tries getting a byteArray from a socket until error or timeout
+ @param socketFd the socket file descriptor
+ @return the packet data alongside the length of the data as byteArray, or a NULL byteArray on error or timeout
+*/
+byteArray getPacketBytes(int socketFd);
+
+/*!
+ @brief Parses the raw packet data into a nice struct
+ @param dataArray pointer to the packet data alongside it's size
+ @param compression the established compression level
+ @return the packet struct or a nullPacket to indicate error
+*/
+packet parsePacket(byteArray* dataArray, int compression);
+
+/*Socket reading note
+The process of getting a valid packet goes like this:
+readSocket -tries reading-> getPacketBytes -tries reading until timeout-> parsePacket -parses the packet-> getPacket()
+*/
 
 ssize_t requestPacket(int socketFd, int packetType, int compression){
     return sendPacket(socketFd, 0, packetType, NULL, compression);
@@ -85,50 +108,7 @@ ssize_t sendPacket(int socketFd, int size, int packetId, const byte* data, int c
     }
 }
 
-size_t writeString(byte* buff, const char* string, int stringLen){
-    size_t offset = writeVarInt(buff, stringLen);
-    strcpy(buff + offset, string);
-    return stringLen + offset;
-}
-
-size_t writeVarInt(byte* buff, int value){
-    short i = 0;
-    while(true){
-        if((value & ~SEGMENT_BITS) == 0){
-            buff[i] = value;
-            return i + 1;
-        }
-        buff[i] = (value & SEGMENT_BITS) | CONTINUE_BIT;
-        value >>= 7;
-        i++;
-    }
-}
-
-int readVarInt(const byte* buff, int* index){
-    int value = 0;
-    int position = 0;
-    if(index == NULL){
-        int locIndex = 0;
-        index = &locIndex;
-    }
-    while(true){
-        byte currentByte = buff[*index];
-        *index += 1;
-        value |= (currentByte & SEGMENT_BITS) << position;
-
-        if((currentByte & CONTINUE_BIT) == 0) break;
-
-        position += 7;
-
-        if(position >= 32){
-            errno = EOVERFLOW;
-            return 0;
-        }
-    }
-    return value;
-}
-
-byteArray getPacket(int socketFd){
+byteArray getPacketBytes(int socketFd){
     time_t start = clock();
     byteArray packet = {NULL, 0};
     while(packet.bytes == NULL){
@@ -148,15 +128,9 @@ byteArray readSocket(int socketFd){
     int position = 0;
     while(true){
         byte curByte = 0;
-        int res = 0;
-        while((res = read(socketFd, &curByte, 1)) != 1){
-            if(res == EOF){
-                errno = EOF;
-                return result;
-            }
-            if(res < EOF){
-                return result;
-            }
+        int res = read(socketFd, &curByte, 1);
+        if(res < 1){
+            return result;
         }
         size |= (curByte & SEGMENT_BITS) << position;
         if((curByte & CONTINUE_BIT) == 0) break;
@@ -165,10 +139,11 @@ byteArray readSocket(int socketFd){
     result.len = size;
     byte* input = calloc(size, sizeof(byte));
     int nRead = 0;
+    //While we have't read the entire packet
     while(nRead < size){
+        //Read the rest of the packet
         int r = read(socketFd, input + nRead, size - nRead);
-        if(r == EOF){
-            errno = EOF;
+        if(r < 1){
             free(input);
             return result;
         }
@@ -224,7 +199,7 @@ int64_t pingPong(int socketFd){
         return -1;
     }
     //pong
-    byteArray input = getPacket(socketFd);
+    byteArray input = getPacketBytes(socketFd);
     if(input.bytes == NULL){
         return -2;
     }
@@ -265,11 +240,28 @@ ssize_t startLogin(int socketFd, const char* name, const UUID_t* player){
     return sendPacket(socketFd, packetLen, LOGIN_START, data, NO_COMPRESSION);
 }
 
-char* readString(const byte* buff, int* index){
-    if(index == NULL){
-        int locIndex = 0;
-        index = &locIndex;
+packet getPacket(int socketFd, int compression){
+    byteArray newPacket = getPacketBytes(socketFd);;
+    if(newPacket.bytes == NULL){
+        return nullPacket;
     }
-    int msgLen = readVarInt(buff, index);
-    return (char*)(buff + *index);
+    packet response = parsePacket(&newPacket, compression);
+    free(newPacket.bytes);
+    return response;
+}
+
+char* getServerStatus(int socketFd){
+    requestPacket(socketFd, STATUS_REQUEST, NO_COMPRESSION);
+    //parse the status
+    packet status = getPacket(socketFd, NO_COMPRESSION);
+    if(status.packetId != STATUS_RESPONSE){
+        return NULL;
+    }
+    int offset = 0;
+    int length = readVarInt(status.data, &offset);
+    char* rawJson = calloc(length, 1);
+    memcpy(rawJson, status.data + offset, length);
+    free(status.data);
+    //Might use cJson to parse this
+    return rawJson;
 }
