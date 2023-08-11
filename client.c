@@ -22,6 +22,7 @@
 
 #include "networkingMc.h"
 #include "packetDefinitions.h"
+#include "gamestateMc.h"
 
 //https://wiki.vg/Protocol#Definitions
 
@@ -80,7 +81,7 @@ int main(int argc, char** argv){
     }
     printf("Successfully logged in\n");
     { //Play state
-        bool loginPlay = false; //We should wait for login(play) before proceeding
+        struct gamestate current = {};
         bool play = true;
         int index = 0;
         packet* backlog = NULL;
@@ -93,6 +94,9 @@ int main(int argc, char** argv){
                     }
                     else{
                         //process the backlog
+                        for(int i = 0; i < index; i++){
+                            parsePlayPacket(backlog + i, &current);
+                        }
                         free(backlog);
                         backlog = NULL;
                         index = 0;
@@ -106,9 +110,6 @@ int main(int argc, char** argv){
                     int64_t aliveId = *(int64_t*)response.data;
                     sendPacket(sockFd, sizeof(int64_t), KEEP_ALIVE_2, (byte*)&aliveId, compression);
                     break;
-                case LOGIN_PLAY:; //login (play)
-                    loginPlay = true;
-                    break;
                 case PING_PLAY:; //ping (the vanilla client doesn't respond)
                     int32_t pingId = *(int32_t*)response.data;
                     sendPacket(sockFd, sizeof(int32_t), PONG_PLAY, (byte*)&pingId, compression);
@@ -116,6 +117,7 @@ int main(int argc, char** argv){
                 default:;
                     if(backlog == NULL){
                         //process the packet
+                        parsePlayPacket(&response, &current);
                     }
                     else{
                         backlog[index] = response;

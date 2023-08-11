@@ -6,6 +6,13 @@
 
 #include "mcTypes.h"
 
+//If index is null then changes index to point to a newly created int with value of 0
+#define getIndex(index) \
+    if(index == NULL){ \
+        int locIndex = 0; \
+        index = &locIndex; \
+    }
+
 size_t writeVarInt(byte* buff, int32_t value){
     short i = 0;
     while(true){
@@ -22,10 +29,7 @@ size_t writeVarInt(byte* buff, int32_t value){
 int32_t readVarInt(const byte* buff, int* index){
     int32_t value = 0;
     int position = 0;
-    if(index == NULL){
-        int locIndex = 0;
-        index = &locIndex;
-    }
+    getIndex(index)
     while(true){
         byte currentByte = buff[*index];
         *index += 1;
@@ -55,13 +59,11 @@ size_t writeString(byte* buff, const char* string, int stringLen){
 }
 
 char* readString(const byte* buff, int* index){
-    if(index == NULL){
-        int locIndex = 0;
-        index = &locIndex;
-    }
+    getIndex(index)
     int msgLen = readVarInt(buff, index);
     char* result = calloc(msgLen + 1, sizeof(char));
     memcpy(result, buff + *index, msgLen);
+    *index += msgLen;
     return result;
 }
 
@@ -72,15 +74,46 @@ size_t writeByteArray(byte* buff, byteArray arr){
 }
 
 byteArray readByteArray(const byte* buff, int* index){
-    if(index == NULL){
-        int locIndex = 0;
-        index = &locIndex;
-    }
+    getIndex(index)
     byteArray arr = nullByteArray;
     int arrLen = readVarInt(buff, index);
     arr.len = arrLen;
     byte* val = calloc(arrLen, sizeof(byte));
     memcpy(val, buff + *index, arrLen);
     arr.bytes = val;
+    *index += arrLen;
     return arr;
+}
+
+int32_t readInt(const byte* buff, int* index){
+    getIndex(index)
+    int32_t result = *(int32_t*)(buff + *index);
+    *index += sizeof(int32_t);
+    return result;
+}
+
+bool readBool(const byte* buff, int* index){
+    getIndex(index)
+    bool result =  *(bool*)(buff + *index);
+    *index += sizeof(bool);
+    return result;
+}
+
+byte readByte(const byte* buff, int* index){
+    getIndex(index)
+    byte result = buff[*index];
+    *index += 1;
+    return result;
+}
+
+stringArray readStringArray(const byte* buff, int* index){
+    stringArray result = nullStringArray;
+    getIndex(index)
+    int number = readVarInt(buff, index);
+    result.len = number;
+    result.arr = calloc(number, sizeof(char*));
+    for(int i = 0; i < number; i++){
+        result.arr[i] = readString(buff, index);
+    }
+    return result;
 }

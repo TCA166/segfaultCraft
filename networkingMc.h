@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <inttypes.h>
+#ifndef SEGMENT_BITS
 #include "mcTypes.h"
+#endif
 
 //Constants definitions
 
