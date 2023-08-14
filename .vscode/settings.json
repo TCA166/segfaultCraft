@@ -17,7 +17,8 @@
         "unistd.h": "c",
         "inet.h": "c",
         "mctypes.h": "c",
-        "gamestatemc.h": "c"
+        "gamestatemc.h": "c",
+        "packetdefinitions.h": "c"
     },
     "C_Cpp.default.compilerPath": "/usr/bin/gcc"
 }

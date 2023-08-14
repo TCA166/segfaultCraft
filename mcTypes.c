@@ -117,3 +117,10 @@ stringArray readStringArray(const byte* buff, int* index){
     }
     return result;
 }
+
+int16_t readShort(const byte* buff, int* index){
+    getIndex(index)
+    int16_t result = (int16_t)(buff + *index);
+    *index += sizeof(int16_t);
+    return result;
+}

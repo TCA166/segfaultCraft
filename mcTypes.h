@@ -127,3 +127,11 @@ byte readByte(const byte* buff, int* index);
  @return a stringArray object
 */
 stringArray readStringArray(const byte* buff, int* index);
+
+/*!
+ @brief Reads a short from the buffer at index
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded short
+*/
+int16_t readShort(const byte* buff, int* index);

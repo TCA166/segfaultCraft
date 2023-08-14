@@ -18,7 +18,7 @@ struct gamestate{
     struct playerstate player;
     bool hardcore : 1;
     identifierArray dimensions;
-    struct nbt_list* registryCodec;
+    struct nbt_node* registryCodec;
     identifier dimensionType; //current dimension type
     identifier dimensionName;
     int64_t hashedSeed;
