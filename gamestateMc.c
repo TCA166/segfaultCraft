@@ -6,41 +6,40 @@
 #include "cNBT/nbt.h"
 
 size_t nodeSize(nbt_node* node){
-    size_t res = 1;
+    size_t res = sizeof(byte);
     if(node->name != NULL){
-        res += 2 + strlen(node->name);
+        res += sizeof(int16_t) + strlen(node->name);
     }
     struct list_head* pos;
     switch(node->type){
         case TAG_INVALID:;
-            res += 1;
             break;
         case TAG_BYTE:;
-            res += 1;
+            res += sizeof(byte);
             break;
         case TAG_SHORT:;
-            res += 2;
+            res += sizeof(int16_t);
             break;
         case TAG_INT:;
-            res += 4;
+            res += sizeof(int32_t);
             break;
         case TAG_LONG:;
-            res += 8;
+            res += sizeof(int64_t);
             break;
         case TAG_FLOAT:;
-            res += 4;
+            res += sizeof(float);
             break;
         case TAG_DOUBLE:;
-            res += 8;
+            res += sizeof(double);
             break;
         case TAG_BYTE_ARRAY:;
-            res += 4 + node->payload.tag_byte_array.length;
+            res += sizeof(int32_t) + node->payload.tag_byte_array.length;
             break;
         case TAG_STRING:;
-            res += 2 + strlen(node->payload.tag_string);
+            res += sizeof(int16_t) + strlen(node->payload.tag_string);
             break;
         case TAG_LIST:;
-            res += 5;
+            res += sizeof(byte) + sizeof(int32_t);
             list_for_each(pos, &node->payload.tag_list->entry){
                 struct nbt_list* el = list_entry(pos, struct nbt_list, entry);
                 res += nodeSize(el->data);
@@ -53,10 +52,10 @@ size_t nodeSize(nbt_node* node){
             }
             break;
         case TAG_INT_ARRAY:;
-            res += 4 + (node->payload.tag_int_array.length * 4);
+            res += sizeof(int32_t) + (node->payload.tag_int_array.length * sizeof(int32_t));
             break;
         case TAG_LONG_ARRAY:;
-            res += 4 + (node->payload.tag_long_array.length * 8);
+            res += sizeof(int32_t) + (node->payload.tag_long_array.length * sizeof(int64_t));
             break;
     }
     return res;

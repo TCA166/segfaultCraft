@@ -1,6 +1,7 @@
-#include "stdbool.h"
+#include <stdbool.h>
+#include <inttypes.h>
 
-typedef unsigned char byte;
+typedef uint8_t byte;
 
 //Type for Minecraft UUID which should be unsigned int128
 typedef __uint128_t UUID_t;
