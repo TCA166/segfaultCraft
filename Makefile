@@ -29,5 +29,5 @@ mcTypes.ow: mcTypes.c
 	x86_64-w64-mingw32-gcc-win32 $(CFLAGS) mcTypes.c -o mcTypes.ow -c 
 
 clean:
-	rm -f *.o
-	rm -f *.ow
+	rm -rf *.o
+	rm -rf *.ow
