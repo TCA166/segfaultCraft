@@ -120,7 +120,18 @@ stringArray readStringArray(const byte* buff, int* index){
 
 int16_t readShort(const byte* buff, int* index){
     getIndex(index)
-    int16_t result = (int16_t)(buff + *index);
+    int16_t result = *(int16_t*)(buff + *index);
     *index += sizeof(int16_t);
     return result;
+}
+
+int16_t readBigEndianShort(const byte* buff, int* index){
+    int16_t s = readShort(buff, index);
+    return (s << 8) | ((s >> 8) & 0xFF);
+}
+
+int32_t readBigEndianInt(const byte* buff, int* index){
+    int32_t i = readInt(buff, index);
+    i = ((i << 8) & 0xFF00FF00) | ((i >> 8) & 0xFF00FF ); 
+    return (i << 16) | ((i >> 16) & 0xFFFF);
 }

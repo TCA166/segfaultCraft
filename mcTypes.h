@@ -106,6 +106,14 @@ byteArray readByteArray(const byte* buff, int* index);
 int32_t readInt(const byte* buff, int* index);
 
 /*!
+ @brief Reads an int32 from the buffer and then swaps the endianness
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded int32
+*/
+int32_t readBigEndianInt(const byte* buff, int* index);
+
+/*!
  @brief Read a boolean from the buffer at index
  @param buff the buffer to read from
  @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
@@ -136,3 +144,11 @@ stringArray readStringArray(const byte* buff, int* index);
  @return the encoded short
 */
 int16_t readShort(const byte* buff, int* index);
+
+/*!
+ @brief Reads a short from the buffer at index and then swaps the endianness
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded short
+*/
+int16_t readBigEndianShort(const byte* buff, int* index);
