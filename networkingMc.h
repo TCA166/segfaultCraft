@@ -2,9 +2,9 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <inttypes.h>
-#ifndef SEGMENT_BITS
 #include "mcTypes.h"
-#endif
+
+#ifndef TCP_TIMEOUT
 
 //Constants definitions
 
@@ -122,3 +122,5 @@ char* getServerStatus(int socketFd);
  @return the result of the process. Negative values indicate errors, positive values indicates graceful disconnects
 */
 int loginState(int socketFd, packet* response, UUID_t* given, const char* username, int* compression);
+
+#endif

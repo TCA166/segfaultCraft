@@ -28,8 +28,10 @@ if __name__ == "__main__":
                 result[state].append([name, num, bound, state.lower(), link])
     with open("packetDefinitions.h", "w") as f:
         f.write("//Created for %s\n" % notice)
+        f.write("#ifndef PACKET_DEFINITIONS\n#define PACKET_DEFINITIONS")
         for key, val in result.items():
             f.write("\n//%s packets\n\n" % key)
             for item in val:
                 f.write("#define %s %s //Bound to %s during %s. %s\n" % tuple(item))
+        f.write("\n#endif\n")
 

@@ -14,7 +14,9 @@
 #include <conio.h>
 #include <winsock2.h>
 #include <io.h>
-#define bzero(b,len) (memset((b), '\0', (len)), (void) 0)  
+#define bzero(b,len) (memset((b), '\0', (len)), (void) 0) 
+#include <bcrypt.h> 
+#define getentropy(ptr, len) BCryptGenRandom(NULL, ptr, len, BCRYPT_USE_SYSTEM_PREFERRED_RNG)  
 #endif
 
 #include <zlib.h>

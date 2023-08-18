@@ -92,6 +92,13 @@ int32_t readInt(const byte* buff, int* index){
     return result;
 }
 
+int64_t readLong(const byte* buff, int* index){
+    getIndex(index);
+    int64_t result = *(int64_t*)(buff + *index);
+    *index += sizeof(int64_t);
+    return result;
+}
+
 bool readBool(const byte* buff, int* index){
     getIndex(index)
     bool result =  *(bool*)(buff + *index);
@@ -134,4 +141,18 @@ int32_t readBigEndianInt(const byte* buff, int* index){
     int32_t i = readInt(buff, index);
     i = ((i << 8) & 0xFF00FF00) | ((i >> 8) & 0xFF00FF ); 
     return (i << 16) | ((i >> 16) & 0xFFFF);
+}
+
+UUID_t readUUID(const byte* buff, int* index){
+    getIndex(index)
+    UUID_t result = *(UUID_t*)(buff + *index);
+    *index += sizeof(UUID_t);
+    return result;
+}
+
+double readDouble(const byte* buff, int* index){
+    getIndex(index)
+    double result = *(double*)(buff + *index);
+    *index += sizeof(double);
+    return result;
 }

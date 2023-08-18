@@ -1,10 +1,14 @@
 #include <stdbool.h>
 #include <inttypes.h>
 
+#ifndef positionX
+
 typedef uint8_t byte;
 
 //Type for Minecraft UUID which should be unsigned int128
 typedef __uint128_t UUID_t;
+
+typedef byte angle_t;
 
 //Minecraft identifier - a string in this format space:name
 typedef char* identifier;
@@ -114,6 +118,14 @@ int32_t readInt(const byte* buff, int* index);
 int32_t readBigEndianInt(const byte* buff, int* index);
 
 /*!
+ @brief Reads an int64 from the buffer at index
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded int64
+*/
+int64_t readLong(const byte* buff, int* index);
+
+/*!
  @brief Read a boolean from the buffer at index
  @param buff the buffer to read from
  @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
@@ -152,3 +164,21 @@ int16_t readShort(const byte* buff, int* index);
  @return the encoded short
 */
 int16_t readBigEndianShort(const byte* buff, int* index);
+
+/*!
+ @brief Reads a UUID from the buffer at index
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded UUID
+*/
+UUID_t readUUID(const byte* buff, int* index);
+
+/*!
+ @brief Reads a double from the buffer at index
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded double
+*/
+double readDouble(const byte* buff, int* index);
+
+#endif

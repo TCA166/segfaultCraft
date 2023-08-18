@@ -16,8 +16,6 @@
 #include <conio.h>
 #include <winsock2.h>
 #include <io.h>
-#include <bcrypt.h> 
-#define getentropy(ptr, len) BCryptGenRandom(NULL, ptr, len, BCRYPT_USE_SYSTEM_PREFERRED_RNG) 
 #endif
 
 #include "networkingMc.h"
@@ -81,7 +79,7 @@ int main(int argc, char** argv){
     }
     printf("Successfully logged in\n");
     { //Play state
-        struct gamestate current = {};
+        struct gamestate current = initGamestate();
         bool play = true;
         int index = 0;
         packet* backlog = NULL;

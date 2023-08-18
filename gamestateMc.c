@@ -7,10 +7,7 @@
 #include "cNBT/nbt.h"
 
 //Gets the size of the nbt tag in buffer, assumes the nbt tag is of the given type
-static size_t tagSize(const byte* buff, byte type);
-
-//Gets the size of the compound tag and it's children
-static size_t compoundSize(const byte* buff);
+static inline size_t tagSize(const byte* buff, byte type);
 
 //Gets the size of the nbt tag and it's children
 size_t nbtSize(const byte* buff, bool inCompound);
@@ -31,7 +28,7 @@ size_t nbtSize(const byte* buff, bool inCompound){
     return res;
 }
 
-size_t tagSize(const byte* buff, byte type){
+static inline size_t tagSize(const byte* buff, byte type){
     int res = 0;
     switch(type){
         case TAG_INVALID:;
@@ -78,7 +75,17 @@ size_t tagSize(const byte* buff, byte type){
             }
             break;
         case TAG_COMPOUND:;
-            res += compoundSize(buff + res);
+            while(true){
+                const byte* el = buff + res;
+                size_t r = nbtSize(el, true);
+                if(r == 0){
+                    break;
+                }
+                else{
+                    //fprintf(stderr, "%d ", r);
+                    res += r;
+                }
+            }
             break;
         case TAG_INT_ARRAY:;
             res += readBigEndianInt(buff, &res) * sizeof(int32_t);
@@ -90,91 +97,26 @@ size_t tagSize(const byte* buff, byte type){
     return res;
 }
 
-size_t compoundSize(const byte* buff){
-    int res = 0;
-    while(true){
-        const byte* el = buff + res;
-        size_t r = nbtSize(el, true);
-        if(r == 0){
-            break;
-        }
-        else{
-            //fprintf(stderr, "%d ", r);
-            res += r;
-        }
-    }
-    //fprintf(stderr, "%d\n", res);
-    return res;
-}
-
-//Nbt calculating function using cNBT nodes instead of memory buffers
-size_t nodeSize(nbt_node* node, bool compound){
-    size_t res = sizeof(byte);
-    if(compound || res == TAG_COMPOUND){   
-        res += sizeof(int16_t);
-        if(node->name != NULL){
-            res += strlen(node->name);
-        }
-    }
-    struct list_head* pos;
-    switch(node->type){
-        case TAG_INVALID:;
-            break;
-        case TAG_BYTE:;
-            res += sizeof(byte);
-            break;
-        case TAG_SHORT:;
-            res += sizeof(int16_t);
-            break;
-        case TAG_INT:;
-            res += sizeof(int32_t);
-            break;
-        case TAG_LONG:;
-            res += sizeof(int64_t);
-            break;
-        case TAG_FLOAT:;
-            res += sizeof(float);
-            break;
-        case TAG_DOUBLE:;
-            res += sizeof(double);
-            break;
-        case TAG_BYTE_ARRAY:;
-            res += sizeof(int32_t) + node->payload.tag_byte_array.length;
-            break;
-        case TAG_STRING:;
-            res += sizeof(int16_t) + strlen(node->payload.tag_string);
-            break;
-        case TAG_LIST:;
-            res += sizeof(byte) + sizeof(int32_t);
-            int n = 0;
-            list_for_each(pos, &node->payload.tag_list->entry){
-                struct nbt_list* el = list_entry(pos, struct nbt_list, entry);
-                res += nodeSize(el->data, false);
-                n++;
-            }
-            if(n <= 0){
-                res += 1;
-            }
-            break;
-        case TAG_COMPOUND:;
-            list_for_each(pos, &node->payload.tag_list->entry){
-                struct nbt_list* el = list_entry(pos, struct nbt_list, entry);
-                res += nodeSize(el->data, true);
-            }
-            break;
-        case TAG_INT_ARRAY:;
-            res += sizeof(int32_t) + (node->payload.tag_int_array.length * sizeof(int32_t));
-            break;
-        case TAG_LONG_ARRAY:;
-            res += sizeof(int32_t) + (node->payload.tag_long_array.length * sizeof(int64_t));
-            break;
-    }
-    return res;
-}
-
 int parsePlayPacket(packet* input, struct gamestate* output){
     int offset = 0;
     switch(input->packetId){
+        case SPAWN_ENTITY:;
+            entity* e = malloc(sizeof(entity));
+            e->id = readVarInt(input->data, &offset);
+            e->uid = readUUID(input->data, &offset);
+            e->type = readVarInt(input->data, &offset);
+            e->x = readDouble(input->data, &offset);
+            e->y = readDouble(input->data, &offset);
+            e->z = readDouble(input->data, &offset);
+            e->pitch = readByte(input->data, &offset);
+            e->yaw = readByte(input->data, &offset);
+            e->headYaw = readByte(input->data, &offset);
+            e->data = readVarInt(input->data, &offset);
+            e->velocityX = readShort(input->data, &offset);
+            e->velocityY = readShort(input->data, &offset);
+            e->velocityZ = readShort(input->data, &offset);
+            addElement(output->entityList, (void*)e);
+            break;
         case LOGIN_PLAY:;
             output->loginPlay = true;
             output->player.entityId = readInt(input->data, &offset);
@@ -188,23 +130,50 @@ int parsePlayPacket(packet* input, struct gamestate* output){
             }
             {
                 byte* nbt = input->data + offset;
+                //oh oh O(2n)... too bad I am not writing a separate parser
                 size_t sz1 = nbtSize(nbt, false);
                 nbt_node* registryCodec = nbt_parse(nbt, sz1);
                 if(registryCodec == NULL || registryCodec->type != TAG_COMPOUND){
                     return -1;
                 }
                 output->registryCodec = registryCodec;
-                //size_t sz = nodeSize(registryCodec, false); //sz is off the actual size by about 263 bytes, so it should be 32752
-                offset += sz1; //this one is now too big 
+                offset += sz1;
             }
-            byte* pastNbt = input->data + offset;
-            output->dimensionType = readString(input->data, &offset);            
-            //size_t s = nbt_size(registryCodec);
-            //fprintf(stderr, "%d", s);
+            output->dimensionType = readString(input->data, &offset);         
+            output->dimensionName = readString(input->data, &offset);   
+            output->hashedSeed = readLong(input->data, &offset);
+            output->maxPlayers = readVarInt(input->data, &offset);
+            output->viewDistance = readVarInt(input->data, &offset);
+            output->simulationDistance = readVarInt(input->data, &offset);
+            output->reducedBugInfo = readBool(input->data, &offset);
+            output->respawnScreen = readBool(input->data, &offset);
+            output->debug = readBool(input->data, &offset);
+            output->flat = readBool(input->data, &offset);
+            output->deathLocation = readBool(input->data, &offset);
+            if(output->deathLocation){
+                output->deathDimension = readString(input->data, &offset);
+                output->death = readLong(input->data, &offset);
+            }
+            output->portalCooldown = readVarInt(input->data, &offset);
             break;  
+        case CHUNK_BIOMES:;
+            int num = readVarInt(input->data, &offset);
+            while(num > 0){
+                int32_t chunkX = readInt(input->data, &offset);
+                int32_t chunkZ = readInt(input->data, &offset);
+                byteArray chunk = readByteArray(input->data, &offset);
+                free(chunk.bytes);
+            }
+            break;
         default:;
             return -1;
             break;
     }
     return 0;
+}
+
+struct gamestate initGamestate(){
+    struct gamestate g = {};
+    g.entityList = initList();
+    return g;
 }

@@ -1,5 +1,6 @@
 //Created for 1.20.1, protocol 763
-
+#ifndef PACKET_DEFINITIONS
+#define PACKET_DEFINITIONS
 //Handshaking packets
 
 #define HANDSHAKE 0x00 //Bound to Server during handshaking. https://wiki.vg/Protocol#Handshake
@@ -187,3 +188,5 @@
 #define TELEPORT_TO_ENTITY 0x30 //Bound to Server during play. https://wiki.vg/Protocol#Teleport_To_Entity
 #define USE_ITEM_ON 0x31 //Bound to Server during play. https://wiki.vg/Protocol#Use_Item_On
 #define USE_ITEM 0x32 //Bound to Server during play. https://wiki.vg/Protocol#Use_Item
+
+#endif

@@ -1,12 +1,28 @@
 #include <stdbool.h>
 #include <inttypes.h>
-#ifndef TCP_TIMEOUT
 #include "networkingMc.h"
-#endif
-#ifndef SEGMENT_BITS
 #include "mcTypes.h"
-#endif
 #include "cNBT/nbt.h"
+#include "list.h"
+
+#ifndef GAMESTATE_MC
+#define GAMESTATE_MC
+
+typedef struct entity{
+    int id;
+    UUID_t uid;
+    int type;
+    double x;
+    double y;
+    double z;
+    angle_t pitch;
+    angle_t yaw;
+    angle_t headYaw;
+    int data;
+    int16_t velocityX;
+    int16_t velocityY;
+    int16_t velocityZ;
+} entity;
 
 struct playerstate{
     int32_t entityId;
@@ -34,6 +50,7 @@ struct gamestate{
     position death;
     int portalCooldown;
     bool loginPlay : 1; //if we can send packets back during play
+    listHead* entityList;
 };
 
 /*!
@@ -43,3 +60,11 @@ struct gamestate{
  @return -1 for error and 0 for success
 */
 int parsePlayPacket(packet* input, struct gamestate* output);
+
+/*!
+ @brief Initializes the gamestate struct
+ @return a properly initialized struct 
+*/
+struct gamestate initGamestate();
+
+#endif
