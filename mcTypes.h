@@ -1,14 +1,14 @@
+#ifndef positionX
+
 #include <stdbool.h>
 #include <inttypes.h>
-
-#ifndef positionX
 
 typedef uint8_t byte;
 
 //Type for Minecraft UUID which should be unsigned int128
 typedef __uint128_t UUID_t;
 
-typedef byte angle_t;
+typedef uint8_t angle_t;
 
 //Minecraft identifier - a string in this format space:name
 typedef char* identifier;

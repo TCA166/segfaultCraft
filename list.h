@@ -6,14 +6,21 @@
 #ifndef LIST_OUR_H
 #define LIST_OUR_H
 
-//Abstracted list element struct
+typedef struct listHead listHead;
+
 typedef struct listEl listEl;
 
 //Head for list
-typedef struct listHead{
+struct listHead{
     listEl* first;
     size_t len;
-} listHead;
+};
+
+struct listEl{
+    listEl* next;
+    void* value;
+    listHead* head;
+};
 
 /*!
  @brief Gets the element in list at index
@@ -43,5 +50,12 @@ listEl* removeElement(listHead* list, int index);
  @return the initialized list
 */
 listHead* initList();
+
+/*!
+ @brief Frees the list
+ @param list the list to be freed
+ @param freeValues whether free(el.value) should be called
+*/
+void freeList(listHead* list, bool freeValues);
 
 #endif

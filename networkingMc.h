@@ -1,10 +1,11 @@
+#ifndef TCP_TIMEOUT
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/types.h>
 #include <inttypes.h>
 #include "mcTypes.h"
-
-#ifndef TCP_TIMEOUT
+#include "gamestateMc.h"
 
 //Constants definitions
 
@@ -25,21 +26,6 @@
 #define packetNull(packet) packet.data == NULL && packet.size == -1 && packet.packetId == 0
 //A packet that is considered to be NULL
 #define nullPacket (packet){-1, 0, NULL}
-
-//Types
-
-/*!
- @struct packet
- @brief A Minecraft style packet
- @param size the size of everything following the VarInt in packet, so sizeof(packetId) + sizeof(data)
- @param packetId the packet id that indicates to the server what the data should contain
- @param data packed values of fields that this packet should contain or NULL 
-*/
-typedef struct packet{
-    int size; //The size of the entire packet, so sizeof(data) + sizeof(packetId)
-    byte packetId;
-    byte* data;
-} packet;
 
 //Functions
 
@@ -122,5 +108,16 @@ char* getServerStatus(int socketFd);
  @return the result of the process. Negative values indicate errors, positive values indicates graceful disconnects
 */
 int loginState(int socketFd, packet* response, UUID_t* given, const char* username, int* compression);
+
+/*!
+ @brief Keeps the current struct updated based on input from the server. Ideally run this in a thread.
+ @param current struct containing the current gamestate
+ @param response the unparsed packet from the login state
+ @param socketFd the file descriptor of the socket used for communication with the server
+ @param compression the established compression level
+ @param entitiesJson the filename of the entities.json
+ @return the result of the process. Negative values indicate errors. Positive graceful disconnects
+*/
+int playState(struct gamestate* current, packet response, int socketFd, int compression, const char* entitiesJson);
 
 #endif

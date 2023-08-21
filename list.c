@@ -2,12 +2,6 @@
 #include <stdbool.h>
 #include "list.h"
 
-typedef struct listEl{
-    listEl* next;
-    void* value;
-    listHead* head;
-} listEl;
-
 listEl* getElement(listHead* list, int index){
     if(index < 0 || index > list->len){
         return NULL;
@@ -79,4 +73,17 @@ listEl* removeElement(listHead* list, int index){
         el->next = NULL;
     }
     return el;
+}
+
+void freeList(listHead* list, bool freeValues){
+    listEl* el = list->first;
+    while(el != NULL){
+        if(freeValues){
+            free(el->value);
+        }
+        listEl* next = el->next;
+        free(el);
+        el = next;
+    }
+    free(list);
 }

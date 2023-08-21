@@ -5,12 +5,12 @@
 #include "packetDefinitions.h"
 #include "stdbool.h"
 #include "cNBT/nbt.h"
+#include "cJSON/cJSON.h"
 
 //Gets the size of the nbt tag in buffer, assumes the nbt tag is of the given type
 static inline size_t tagSize(const byte* buff, byte type);
 
-//Gets the size of the nbt tag and it's children
-size_t nbtSize(const byte* buff, bool inCompound);
+static int getEntityId(cJSON* entities, const char* name);
 
 size_t nbtSize(const byte* buff, bool inCompound){
     int res = 0;
@@ -97,7 +97,7 @@ static inline size_t tagSize(const byte* buff, byte type){
     return res;
 }
 
-int parsePlayPacket(packet* input, struct gamestate* output){
+int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
     int offset = 0;
     switch(input->packetId){
         case SPAWN_ENTITY:;
@@ -116,6 +116,52 @@ int parsePlayPacket(packet* input, struct gamestate* output){
             e->velocityY = readShort(input->data, &offset);
             e->velocityZ = readShort(input->data, &offset);
             addElement(output->entityList, (void*)e);
+            break;
+        case SPAWN_EXPERIENCE_ORB:;
+            entity* exp = malloc(sizeof(entity));
+            exp->id = readVarInt(input->data, &offset);
+            exp->type = getEntityId(entities, "minecraft:experience_orb");
+            exp->x = readDouble(input->data, &offset);
+            exp->y = readDouble(input->data, &offset);
+            exp->z = readDouble(input->data, &offset);
+            exp->data = (int32_t)readShort(input->data, &offset);
+            addElement(output->entityList, (void*)exp);
+            break;
+        case SPAWN_PLAYER:;
+            entity* player = malloc(sizeof(entity));
+            player->id = readVarInt(input->data, &offset);
+            player->uid = readUUID(input->data, &offset);
+            player->type = getEntityId(entities, "minecraft:player");
+            player->x = readDouble(input->data, &offset);
+            player->y = readDouble(input->data, &offset);
+            player->z = readDouble(input->data, &offset);
+            player->yaw = readByte(input->data, &offset);
+            player->pitch = readByte(input->data, &offset);
+            addElement(output->entityList, (void*)player);
+            break;
+        case ENTITY_ANIMATION:;
+            int32_t eid = readVarInt(input->data, &offset);
+            byte animation = readByte(input->data, &offset);
+            listEl* el = output->entityList->first;
+            while(el != NULL){
+                entity* e = (entity*)el->value;
+                if(e != NULL && e->id == eid){
+                    e->animation = animation;
+                    break;
+                }
+                el = el->next;
+            }
+            break;
+        case AWARD_STATISTICS:;
+            //ignored for now as it's optional
+            break;
+        case ACKNOWLEDGE_BLOCK_CHANGE:;
+            int32_t sequenceChange = readVarInt(input->data, &offset);
+            for(int i = 0; i < output->pendingChanges.len; i++){
+                if(output->pendingChanges.array[i].sequenceId == sequenceChange){
+                    //TODO: do the change
+                }
+            }
             break;
         case LOGIN_PLAY:;
             output->loginPlay = true;
@@ -176,4 +222,10 @@ struct gamestate initGamestate(){
     struct gamestate g = {};
     g.entityList = initList();
     return g;
+}
+
+static int getEntityId(cJSON* entities, const char* name){
+    cJSON* node = cJSON_GetObjectItemCaseSensitive(entities, name);
+    node = cJSON_GetObjectItemCaseSensitive(node, "id");
+    return node->valueint;
 }

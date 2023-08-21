@@ -22,6 +22,8 @@
 #include "packetDefinitions.h"
 #include "gamestateMc.h"
 
+#define ENTITIES_JSON "./entities.json"
+
 //https://wiki.vg/Protocol#Definitions
 
 int main(int argc, char** argv){
@@ -78,58 +80,12 @@ int main(int argc, char** argv){
         return result;
     }
     printf("Successfully logged in\n");
-    { //Play state
-        struct gamestate current = initGamestate();
-        bool play = true;
-        int index = 0;
-        packet* backlog = NULL;
-        while(play){
-            //there are some packet types that need immediate answer and separate processing
-            switch (response.packetId){
-                case BUNDLE_DELIMITER:; //delimiter
-                    if(backlog == NULL){
-                        backlog = calloc(MAX_PACKET, sizeof(packet));
-                    }
-                    else{
-                        //process the backlog
-                        for(int i = 0; i < index; i++){
-                            parsePlayPacket(backlog + i, &current);
-                        }
-                        free(backlog);
-                        backlog = NULL;
-                        index = 0;
-                    }
-                    break;
-                case DISCONNECT_PLAY:; //disconnect
-                    printf("Disconnected:%s\n", readString(response.data, NULL));
-                    return EXIT_SUCCESS;
-                    break;
-                case KEEP_ALIVE:; //Keep alive
-                    int64_t aliveId = *(int64_t*)response.data;
-                    sendPacket(sockFd, sizeof(int64_t), KEEP_ALIVE_2, (byte*)&aliveId, compression);
-                    break;
-                case PING_PLAY:; //ping (the vanilla client doesn't respond)
-                    int32_t pingId = *(int32_t*)response.data;
-                    sendPacket(sockFd, sizeof(int32_t), PONG_PLAY, (byte*)&pingId, compression);
-                    break;
-                default:;
-                    if(backlog == NULL){
-                        //process the packet
-                        parsePlayPacket(&response, &current);
-                    }
-                    else{
-                        backlog[index] = response;
-                        index++;
-                    }
-                    break;
-            }
-            free(response.data);
-            response = getPacket(sockFd, compression);
-            if(packetNull(response)){
-                perror("Error while getting a packet");
-                return EXIT_FAILURE;
-            }
-        }
+    struct gamestate current = initGamestate();
+    result = playState(&current, response, sockFd, compression, ENTITIES_JSON);
+    freeList(current.entityList, true);
+    if(result < 0){
+        perror("Error encountered during play state handling");
+        return result;
     }
     return EXIT_SUCCESS;
 }

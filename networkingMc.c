@@ -1,5 +1,6 @@
 #include "networkingMc.h"
 #include "packetDefinitions.h"
+#include "cJSON/cJSON.h"
 
 #include <stdbool.h>
 #include <errno.h>
@@ -331,4 +332,59 @@ int loginState(int socketFd, packet* response, UUID_t* given, const char* userna
         }
     }
     return 0;
+}
+
+int playState(struct gamestate* current, packet response, int socketFd, int compression, const char* entitiesJson){
+    cJSON* entities = cJSON_Parse(entitiesJson);
+    bool play = true;
+    int index = 0;
+    packet* backlog = NULL;
+    while(play){
+        //there are some packet types that need immediate answer and separate processing
+        switch (response.packetId){
+            case BUNDLE_DELIMITER:; //delimiter
+                if(backlog == NULL){
+                    backlog = calloc(MAX_PACKET, sizeof(packet));
+                }
+                else{
+                    //process the backlog
+                    for(int i = 0; i < index; i++){
+                        parsePlayPacket(backlog + i, current, entities);
+                    }
+                    free(backlog);
+                    backlog = NULL;
+                    index = 0;
+                }
+                break;
+            case DISCONNECT_PLAY:; //disconnect
+                printf("Disconnected:%s\n", readString(response.data, NULL));
+                play = false;
+                break;
+            case KEEP_ALIVE:; //Keep alive
+                int64_t aliveId = *(int64_t*)response.data;
+                sendPacket(socketFd, sizeof(int64_t), KEEP_ALIVE_2, (byte*)&aliveId, compression);
+                break;
+            case PING_PLAY:; //ping (the vanilla client doesn't respond)
+                int32_t pingId = *(int32_t*)response.data;
+                sendPacket(socketFd, sizeof(int32_t), PONG_PLAY, (byte*)&pingId, compression);
+                break;
+            default:;
+                if(backlog == NULL){
+                    //process the packet
+                    parsePlayPacket(&response, current, entities);
+                }
+                else{
+                    backlog[index] = response;
+                    index++;
+                }
+                break;
+        }
+        free(response.data);
+        response = getPacket(socketFd, compression);
+        if(packetNull(response)){
+            perror("Error while getting a packet");
+            return -1;
+        }
+    }
+    cJSON_Delete(entities);
 }

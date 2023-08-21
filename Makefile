@@ -1,6 +1,6 @@
 
-client: networkingMc.o mcTypes.o gamestateComplete.o client.c
-	gcc $(CFLAGS) client.c networkingMc.o mcTypes.o gamestateComplete.o -o client -lz
+client: networkingMc.o mcTypes.o gamestateComplete.o cJSON.o client.c
+	gcc $(CFLAGS) client.c networkingMc.o mcTypes.o cJSON.o gamestateComplete.o -o client -lz
 
 networkingMc.o: networkingMc.c
 	gcc $(CFLAGS) networkingMc.c -o networkingMc.o -c 
@@ -21,6 +21,9 @@ cNBT.o: cNBT/buffer.c cNBT/nbt_parsing.c cNBT/nbt_treeops.c cNBT/nbt_util.c
 	gcc cNBT/nbt_treeops.c -o cNBT/nbt_treeops.o -c $(CFLAGS)
 	gcc cNBT/nbt_util.c -o cNBT/nbt_util.o -c $(CFLAGS)
 	ld -relocatable cNBT/buffer.o cNBT/nbt_parsing.o cNBT/nbt_treeops.o cNBT/nbt_util.o -o cNBT.o
+
+cJSON.o: cJSON/cJSON.c
+	gcc cJSON/cJSON.c -o cJSON.o -c $(CFLAGS)
 
 client.exe: networkingMc.ow mcTypes.ow client.c gamestateComplete.ow
 	x86_64-w64-mingw32-gcc-win32 $(CFLAGS) client.c -lws2_32 networkingMc.ow -lws2_32 mcTypes.ow gamestateComplete.ow -o client -lz -lbcrypt

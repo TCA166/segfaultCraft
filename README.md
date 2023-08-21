@@ -2,6 +2,8 @@
 
 A C library for interacting with Minecraft servers
 
-## Status
+## Capabilites
 
-It's not quite finished, and I'm not quite sure yet what I want to do with it, but for now the client is capable of receiving and sending Minecraft packets, and keeping the connection open.
+For now this project is merely a C library for interacting with Minecraft servers. It is capable of logging in to a Minecraft server and parsing packets.
+The idea behind the library is to abstract as much as possible, and to that end the library provides a gamestate struct that accurately reflects the sum of everything the server is sending.
+For now the function for accurately editing this gamestate in real time is being developed, but the rest of the API for sending and receiving packets is ready.
