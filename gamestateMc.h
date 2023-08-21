@@ -38,20 +38,39 @@ typedef struct entity{
     uint8_t animation;
 } entity;
 
+typedef enum block_faces{
+    BOTTOM_FACE = 0, //-Y
+    TOP_FACE = 1, //+Y
+    NORTH_FACE = 2, //-Z
+    SOUTH_FACE = 3, //+Z
+    WEST_FACE = 4, //-X
+    EAST_FACE = 5 //+X
+} face_t;
+
+typedef enum player_action_status{
+    STARTED_DIGGING = 0,
+    CANCELLED_DIGGING = 1,
+    FINISHED_DIGGING = 2,
+    DROP_ITEM_STACK = 3,
+    DROP_ITEM = 4,
+    SHOOT_ARROW = 5,
+    SWAP_ITEM = 6
+} status_t;
+
+//Used for storing pending changes and awaiting for server confirmation
 struct blockChange{
     int sequenceId;
     position location;
-};
-
-//How and what the player is doing
-struct playerstate{
-    int32_t entityId;
-    uint8_t gamemode;
-    uint8_t previousGamemode;
+    face_t face;
+    status_t status;
 };
 
 struct gamestate{
-    struct playerstate player;
+    union{
+        int32_t entityId;
+        uint8_t gamemode;
+        uint8_t previousGamemode;
+    } player;
     bool hardcore : 1;
     identifierArray dimensions;
     struct nbt_node* registryCodec;
@@ -75,7 +94,30 @@ struct gamestate{
         struct blockChange* array;
         size_t len;
     } pendingChanges;
+    listHead* chunks;
 };
+
+//I am not certain if a list is the best choice for storing chunks, but it handles deletion and appending the best out of all the things i can think of
+
+typedef struct block{
+    double x;
+    double y;
+    double z;
+    identifier type;
+    byte stage;
+    uint16_t animationData;
+} block;
+
+struct section{
+    uint8_t y;
+    block* blocks[16][16][16];
+};
+
+typedef struct chunk{
+    int x;
+    int z;
+    struct section sections[24];
+} chunk;
 
 /*!
  @brief Calculates the size of the nbt tag in the buffer

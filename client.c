@@ -83,6 +83,7 @@ int main(int argc, char** argv){
     struct gamestate current = initGamestate();
     result = playState(&current, response, sockFd, compression, ENTITIES_JSON);
     freeList(current.entityList, true);
+    freeList(current.chunks, false);
     if(result < 0){
         perror("Error encountered during play state handling");
         return result;

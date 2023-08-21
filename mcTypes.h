@@ -17,9 +17,9 @@ typedef int64_t position;
 
 #define positionX(position) (position >> 38)
 
-#define positionY(position) (position & 0xfff)
+#define positionY(position) (position << 52 >> 52)
 
-#define positionZ(position) (position & << 26 >> 38)
+#define positionZ(position) (position << 26 >> 38)
 
 /*!
  @struct byteArray

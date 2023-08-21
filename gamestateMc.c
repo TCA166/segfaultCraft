@@ -12,6 +12,8 @@ static inline size_t tagSize(const byte* buff, byte type);
 
 static int getEntityId(cJSON* entities, const char* name);
 
+static block** getBlock(struct gamestate* current, position pos);
+
 size_t nbtSize(const byte* buff, bool inCompound){
     int res = 0;
     //each nbt tag starts with a byte indicating the type
@@ -158,9 +160,43 @@ int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
         case ACKNOWLEDGE_BLOCK_CHANGE:;
             int32_t sequenceChange = readVarInt(input->data, &offset);
             for(int i = 0; i < output->pendingChanges.len; i++){
-                if(output->pendingChanges.array[i].sequenceId == sequenceChange){
-                    //TODO: do the change
+                struct blockChange* change = output->pendingChanges.array + i;
+                if(change->sequenceId == sequenceChange){
+                    //TODO handle rest
+                    if(change->status == FINISHED_DIGGING){
+                        block** b = getBlock(output, change->location);
+                        if(b != NULL){
+                            free(*b);
+                            *b = NULL;
+                        }
+                    }
                 }
+            }
+            break;
+        case SET_BLOCK_DESTROY_STAGE:;
+            int32_t breakingId = readVarInt(input->data, &offset);
+            position location = (position)readLong(input->data, &offset);
+            byte stage = readByte(input->data, &offset);
+            block** b = getBlock(output, location);
+            if(b != NULL){
+                if(stage < 10){
+                    (*b)->stage = stage;
+                }
+                else{
+                    free(*b);
+                    *b = NULL;
+                }
+            }
+            break;
+        case BLOCK_ENTITY_DATA:;
+            //TODO: HANDLE
+            break;
+        case BLOCK_ACTION:;
+            position location = (position)readLong(input->data, &offset);
+            uint16_t animationData = readShort(input->data, &offset);
+            block** b = getBlock(output, location);
+            if(b != NULL){
+                (*b)->animationData = animationData;
             }
             break;
         case LOGIN_PLAY:;
@@ -221,6 +257,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
 struct gamestate initGamestate(){
     struct gamestate g = {};
     g.entityList = initList();
+    g.chunks = initList();
     return g;
 }
 
@@ -228,4 +265,27 @@ static int getEntityId(cJSON* entities, const char* name){
     cJSON* node = cJSON_GetObjectItemCaseSensitive(entities, name);
     node = cJSON_GetObjectItemCaseSensitive(node, "id");
     return node->valueint;
+}
+
+static block** getBlock(struct gamestate* current, position pos){
+    int x = positionX(pos);
+    int y = positionY(pos);
+    int z = positionZ(pos);
+    short chunkX = x >> 4;
+    short chunkZ = z >> 4;
+    short sectionId = (y + (4 * 16)) >> 4;
+    listEl* e = current->chunks->first;
+    chunk* c = NULL;
+    while(e != NULL){
+        chunk* ch = (chunk*)e->value;
+        if(ch->x == chunkX && ch->z == chunkZ){
+            c = ch;
+            break;
+        }
+        e = e->next;
+    }
+    if(c == NULL){
+        return NULL;
+    }
+    return &(c->sections[sectionId].blocks[x][y][z]);
 }
