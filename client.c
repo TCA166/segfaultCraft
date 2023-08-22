@@ -22,7 +22,7 @@
 #include "packetDefinitions.h"
 #include "gamestateMc.h"
 
-#define ENTITIES_JSON "./entities.json"
+#define VERSION_JSON "./19.4.json"
 
 //https://wiki.vg/Protocol#Definitions
 
@@ -81,7 +81,7 @@ int main(int argc, char** argv){
     }
     printf("Successfully logged in\n");
     struct gamestate current = initGamestate();
-    result = playState(&current, response, sockFd, compression, ENTITIES_JSON);
+    result = playState(&current, response, sockFd, compression, VERSION_JSON);
     freeList(current.entityList, true);
     freeList(current.chunks, false);
     if(result < 0){

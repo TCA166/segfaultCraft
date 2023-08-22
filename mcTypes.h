@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <inttypes.h>
 
+#include "cNBT/nbt.h"
+
 typedef uint8_t byte;
 
 //Type for Minecraft UUID which should be unsigned int128
@@ -43,6 +45,20 @@ typedef struct identifierArray{
     identifier* arr;
     size_t len;
 } identifierArray;
+
+//A minecraft style networking packet
+typedef struct packet{
+    int size; //The size of the entire packet, so sizeof(data) + sizeof(packetId)
+    byte packetId;
+    byte* data;
+} packet;
+
+typedef struct slot{
+    bool present;
+    int32_t id;
+    uint8_t count;
+    nbt_node* NBT;
+} slot;
 
 #define nullStringArray (stringArray){NULL, 0}
 
@@ -180,5 +196,21 @@ UUID_t readUUID(const byte* buff, int* index);
  @return the encoded double
 */
 double readDouble(const byte* buff, int* index);
+
+/*!
+ @brief Calculates the size of the nbt tag in the buffer
+ @param buff the buffer that contains the nbt tag
+ @param inCompound If the tag is contained withing a compound tag
+ @return the size of the nbt tag in bytes
+*/
+size_t nbtSize(const byte* buff, bool inCompound);
+
+/*!
+ @brief Reads a slot type from the memory
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded slot
+*/
+slot readSlot(const byte* buff, int* index);
 
 #endif

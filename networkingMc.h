@@ -115,9 +115,9 @@ int loginState(int socketFd, packet* response, UUID_t* given, const char* userna
  @param response the unparsed packet from the login state
  @param socketFd the file descriptor of the socket used for communication with the server
  @param compression the established compression level
- @param entitiesJson the filename of the entities.json
+ @param versionJson the filename of the version definition json
  @return the result of the process. Negative values indicate errors. Positive graceful disconnects
 */
-int playState(struct gamestate* current, packet response, int socketFd, int compression, const char* entitiesJson);
+int playState(struct gamestate* current, packet response, int socketFd, int compression, const char* versionJSON);
 
 #endif

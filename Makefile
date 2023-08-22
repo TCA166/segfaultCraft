@@ -1,16 +1,17 @@
 
-client: networkingMc.o mcTypes.o gamestateComplete.o cJSON.o client.c
-	gcc $(CFLAGS) client.c networkingMc.o mcTypes.o cJSON.o gamestateComplete.o -o client -lz
+client: networkingMc.o gamestateComplete.o cJSON.o client.c
+	gcc $(CFLAGS) client.c networkingMc.o cJSON.o gamestateComplete.o -o client -lz
 
 networkingMc.o: networkingMc.c
 	gcc $(CFLAGS) networkingMc.c -o networkingMc.o -c 
 
-mcTypes.o: mcTypes.c
-	gcc $(CFLAGS) mcTypes.c -o mcTypes.o -c
+mcTypes.o: mcTypes.c cNBT.o
+	gcc $(CFLAGS) mcTypes.c -o mcType.o -c
+	ld -relocatable cNBT.o mcType.o -o mcTypes.o
 
-gamestateComplete.o: gamestateMc.c cNBT.o list.o
+gamestateComplete.o: gamestateMc.c mcTypes.o list.o
 	gcc $(CFLAGS) gamestateMc.c -o gamestateMc.o -c
-	ld -relocatable gamestateMc.o cNBT.o list.o -o gamestateComplete.o
+	ld -relocatable gamestateMc.o mcTypes.o list.o -o gamestateComplete.o
 
 list.o: list.c
 	gcc $(CFLAGS) list.c -o list.o -c

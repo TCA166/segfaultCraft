@@ -7,102 +7,14 @@
 #include "cNBT/nbt.h"
 #include "cJSON/cJSON.h"
 
-//Gets the size of the nbt tag in buffer, assumes the nbt tag is of the given type
-static inline size_t tagSize(const byte* buff, byte type);
-
-static int getEntityId(cJSON* entities, const char* name);
+static int getEntityId(const cJSON* entities, const char* name);
 
 static block** getBlock(struct gamestate* current, position pos);
 
-size_t nbtSize(const byte* buff, bool inCompound){
-    int res = 0;
-    //each nbt tag starts with a byte indicating the type
-    byte type = readByte(buff, &res);
-    if(type > TAG_LONG_ARRAY || (type == TAG_INVALID && !inCompound)){
-        return 0; //something went very wrong
-    }
-    //and then tags other than TAG_END if in compound tag have always 2 bytes indicating name length
-    if((inCompound || type == TAG_COMPOUND) && type != TAG_INVALID){
-        res += readBigEndianShort(buff, &res); //by doing this trick we increment res twice. Once by passing the pointer(by short size) and once by incrementing by returned value
-    }
-    //Then we just continue parsing
-    res += tagSize(buff + res, type);
-    return res;
-}
-
-static inline size_t tagSize(const byte* buff, byte type){
-    int res = 0;
-    switch(type){
-        case TAG_INVALID:;
-            return 0; //we return 0 to indicate INVALID
-            break;
-        case TAG_BYTE:;
-            res += sizeof(byte);
-            break;
-        case TAG_SHORT:;
-            res += sizeof(int16_t);
-            break;
-        case TAG_INT:;
-            res += sizeof(int32_t);
-            break;
-        case TAG_LONG:;
-            res += sizeof(int64_t);
-            break;
-        case TAG_FLOAT:;
-            res += sizeof(float);
-            break;
-        case TAG_DOUBLE:;
-            res += sizeof(double);
-            break;
-        case TAG_BYTE_ARRAY:;
-            res += readBigEndianInt(buff, &res);
-            break;
-        case TAG_STRING:;
-            res += (uint16_t)readBigEndianShort(buff, &res);
-            break;
-        case TAG_LIST:;
-            //each list element has the same type
-            byte type = readByte(buff, &res);
-            int32_t num = readBigEndianInt(buff, &res);
-            if(num <= 0){ //if the list is empty we need to increment the size
-                res += 1; //for whatever reason empty lists AREN'T FULLY EMPTY
-                //AND THE WORST PART IS I CANNOT DETECT REALISTICALLY HOW MUCH EMPTY BYTES ARE APPENDED 
-            }
-            else{
-                //else we parse each element in list (why are arrays named lists here?)
-                while(num > 0){
-                    res += tagSize(buff + res, type);
-                    num--;
-                }
-            }
-            break;
-        case TAG_COMPOUND:;
-            while(true){
-                const byte* el = buff + res;
-                size_t r = nbtSize(el, true);
-                if(r == 0){
-                    break;
-                }
-                else{
-                    //fprintf(stderr, "%d ", r);
-                    res += r;
-                }
-            }
-            break;
-        case TAG_INT_ARRAY:;
-            res += readBigEndianInt(buff, &res) * sizeof(int32_t);
-            break;
-        case TAG_LONG_ARRAY:;
-            res += readBigEndianInt(buff, &res) * sizeof(int64_t);
-            break;
-    }
-    return res;
-}
-
-int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
+int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entities, const identifier* globalPalette){
     int offset = 0;
     switch(input->packetId){
-        case SPAWN_ENTITY:;
+        case SPAWN_ENTITY:{
             entity* e = malloc(sizeof(entity));
             e->id = readVarInt(input->data, &offset);
             e->uid = readUUID(input->data, &offset);
@@ -119,7 +31,8 @@ int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
             e->velocityZ = readShort(input->data, &offset);
             addElement(output->entityList, (void*)e);
             break;
-        case SPAWN_EXPERIENCE_ORB:;
+        }
+        case SPAWN_EXPERIENCE_ORB:{
             entity* exp = malloc(sizeof(entity));
             exp->id = readVarInt(input->data, &offset);
             exp->type = getEntityId(entities, "minecraft:experience_orb");
@@ -129,7 +42,8 @@ int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
             exp->data = (int32_t)readShort(input->data, &offset);
             addElement(output->entityList, (void*)exp);
             break;
-        case SPAWN_PLAYER:;
+        }
+        case SPAWN_PLAYER:{
             entity* player = malloc(sizeof(entity));
             player->id = readVarInt(input->data, &offset);
             player->uid = readUUID(input->data, &offset);
@@ -141,7 +55,8 @@ int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
             player->pitch = readByte(input->data, &offset);
             addElement(output->entityList, (void*)player);
             break;
-        case ENTITY_ANIMATION:;
+        }
+        case ENTITY_ANIMATION:{
             int32_t eid = readVarInt(input->data, &offset);
             byte animation = readByte(input->data, &offset);
             listEl* el = output->entityList->first;
@@ -154,10 +69,12 @@ int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
                 el = el->next;
             }
             break;
-        case AWARD_STATISTICS:;
-            //ignored for now as it's optional
+        }
+        case AWARD_STATISTICS:{
+            //TODO: finish
             break;
-        case ACKNOWLEDGE_BLOCK_CHANGE:;
+        }
+        case ACKNOWLEDGE_BLOCK_CHANGE:{
             int32_t sequenceChange = readVarInt(input->data, &offset);
             for(int i = 0; i < output->pendingChanges.len; i++){
                 struct blockChange* change = output->pendingChanges.array + i;
@@ -173,7 +90,8 @@ int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
                 }
             }
             break;
-        case SET_BLOCK_DESTROY_STAGE:;
+        }
+        case SET_BLOCK_DESTROY_STAGE:{
             int32_t breakingId = readVarInt(input->data, &offset);
             position location = (position)readLong(input->data, &offset);
             byte stage = readByte(input->data, &offset);
@@ -188,10 +106,11 @@ int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
                 }
             }
             break;
+        }
         case BLOCK_ENTITY_DATA:;
             //TODO: HANDLE
             break;
-        case BLOCK_ACTION:;
+        case BLOCK_ACTION:{
             position location = (position)readLong(input->data, &offset);
             uint16_t animationData = readShort(input->data, &offset);
             block** b = getBlock(output, location);
@@ -199,7 +118,87 @@ int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
                 (*b)->animationData = animationData;
             }
             break;
-        case LOGIN_PLAY:;
+        }
+        case BLOCK_UPDATE:{
+            position location = (position)readLong(input->data, &offset);
+            int32_t blockId = readVarInt(input->data, &offset);
+            block** b = getBlock(output, location);
+            if(b != NULL){
+                (*b)->type = globalPalette[blockId];
+            }
+            break;
+        }
+        case BOSS_BAR:{
+            //TODO finish this
+            break;
+        }
+        case CHANGE_DIFFICULTY:{
+            output->difficulty = readByte(input->data, &offset);
+            output->difficultyLocked = readBool(input->data, &offset);
+            break;
+        }
+        case CHUNK_BIOMES:{
+            int num = readVarInt(input->data, &offset);
+            while(num > 0){
+                int32_t chunkX = readInt(input->data, &offset);
+                int32_t chunkZ = readInt(input->data, &offset);
+                byteArray chunk = readByteArray(input->data, &offset);
+                //TODO finish
+                free(chunk.bytes);
+            }
+            break;
+        }
+        case CLEAR_TITLES:{
+            //TODO finish and figure out what is this for
+            break;
+        }
+        case COMMAND_SUGGESTIONS_RESPONSE:{
+            //TODO handle
+            break;
+        }
+        case COMMANDS:{
+            //TODO handle
+            break;
+        }
+        case CLOSE_CONTAINER:{
+            //there is a given window ID; might be worth implementing a system allowing for mutiple open windows?
+            output->openContainer = NULL;
+            break;
+        }
+        case SET_CONTAINER_CONTENT:{
+            byte windowId = readByte(input->data, &offset);
+            int32_t stateId = readVarInt(input->data, &offset);
+            int32_t count = readVarInt(input->data, &offset);
+            slot* slots = calloc(count, sizeof(slot));
+            short n = 0;
+            for(short i = count; i > 0; i--){
+                slots[n] = readSlot(input->data, &offset);
+            }
+            output->player.carried = readSlot(input->data, &offset);
+            if(windowId == 0){ //we are dealing with player inventory
+                output->player.inventory.slotCount = count;
+                free(output->player.inventory.slots);
+                output->player.inventory.slots = slots;
+                output->player.inventory.id = 0;
+            }
+            else if(output->openContainer != NULL && output->openContainer->id == windowId){
+                output->openContainer->slotCount = count;
+                free(output->openContainer->slots);
+                output->openContainer->slots = slots;
+            }
+            break;
+        }
+        case SET_CONTAINER_PROPERTY:{
+            byte windowId = readByte(input->data, &offset);
+            int16_t property = readShort(input->data, &offset);
+            int16_t value = readShort(input->data, &offset);
+            if(output->openContainer != NULL && output->openContainer->id == windowId){
+                output->openContainer->flags[property] = value;
+            }
+            break;
+        }
+        
+        case LOGIN_PLAY:{
             output->loginPlay = true;
             output->player.entityId = readInt(input->data, &offset);
             output->hardcore = readBool(input->data, &offset);
@@ -238,18 +237,12 @@ int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities){
             }
             output->portalCooldown = readVarInt(input->data, &offset);
             break;  
-        case CHUNK_BIOMES:;
-            int num = readVarInt(input->data, &offset);
-            while(num > 0){
-                int32_t chunkX = readInt(input->data, &offset);
-                int32_t chunkZ = readInt(input->data, &offset);
-                byteArray chunk = readByteArray(input->data, &offset);
-                free(chunk.bytes);
-            }
-            break;
-        default:;
+        }
+        default:{
+            errno = EINVAL;
             return -1;
             break;
+        }
     }
     return 0;
 }
@@ -261,7 +254,7 @@ struct gamestate initGamestate(){
     return g;
 }
 
-static int getEntityId(cJSON* entities, const char* name){
+static int getEntityId(const cJSON* entities, const char* name){
     cJSON* node = cJSON_GetObjectItemCaseSensitive(entities, name);
     node = cJSON_GetObjectItemCaseSensitive(node, "id");
     return node->valueint;

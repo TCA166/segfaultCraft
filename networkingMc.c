@@ -334,8 +334,42 @@ int loginState(int socketFd, packet* response, UUID_t* given, const char* userna
     return 0;
 }
 
-int playState(struct gamestate* current, packet response, int socketFd, int compression, const char* entitiesJson){
-    cJSON* entities = cJSON_Parse(entitiesJson);
+int playState(struct gamestate* current, packet response, int socketFd, int compression, const char* versionJSON){
+    //first we need to parse the json
+    char* jsonContents = NULL;
+    long sz = 0;
+    {
+        FILE* json = fopen(versionJSON, "r");
+        fseek(json, 0, SEEK_END);
+        sz = ftell(json);
+        fseek(json, 0, SEEK_SET);
+        jsonContents = calloc(sz + 1, 1);
+        fread(jsonContents, sz, 1, json);
+        fclose(json);
+    }
+    const cJSON* version = cJSON_ParseWithLength(jsonContents, sz);
+    free(jsonContents);
+    if(version == NULL){
+        return -1;
+    }
+    //then we get the entities list (I could do with a hashmap here)
+    const cJSON* entities = cJSON_GetObjectItemCaseSensitive(version, "entities");
+    if(version == NULL){
+        return -2;
+    }
+    identifier* globalPalette = NULL;
+    //then we create a lookup table
+    {
+        const cJSON* blocks = cJSON_GetObjectItemCaseSensitive(version, "blocks");
+        int blocksLen = cJSON_GetArraySize(blocks);
+        globalPalette = calloc(blocksLen, sizeof(identifier));
+        cJSON* child = blocks->child;
+        for(int i = 0; i < blocksLen; i++){
+            cJSON* id = cJSON_GetObjectItemCaseSensitive(child, "id");
+            globalPalette[id->valueint] = child->string;
+            child = child->next;
+        }
+    }
     bool play = true;
     int index = 0;
     packet* backlog = NULL;
@@ -349,7 +383,9 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
                 else{
                     //process the backlog
                     for(int i = 0; i < index; i++){
-                        parsePlayPacket(backlog + i, current, entities);
+                        if(parsePlayPacket(backlog + i, current, entities, globalPalette) != 0){
+                            return -3;
+                        }
                     }
                     free(backlog);
                     backlog = NULL;
@@ -371,7 +407,9 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
             default:;
                 if(backlog == NULL){
                     //process the packet
-                    parsePlayPacket(&response, current, entities);
+                    if(parsePlayPacket(&response, current, entities, globalPalette) != 0){
+                        return -3;
+                    }
                 }
                 else{
                     backlog[index] = response;
@@ -383,8 +421,9 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
         response = getPacket(socketFd, compression);
         if(packetNull(response)){
             perror("Error while getting a packet");
-            return -1;
+            return -4;
         }
     }
-    cJSON_Delete(entities);
+    cJSON_Delete((cJSON*)version);
+    return 0;
 }

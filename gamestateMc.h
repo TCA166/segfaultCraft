@@ -13,13 +13,6 @@
 
 //Types
 
-//A minecraft style networking packet
-typedef struct packet{
-    int size; //The size of the entire packet, so sizeof(data) + sizeof(packetId)
-    byte packetId;
-    byte* data;
-} packet;
-
 //Minecraft entity
 typedef struct entity{
     int id;
@@ -65,13 +58,31 @@ struct blockChange{
     status_t status;
 };
 
+struct container{
+    int32_t id;
+    int32_t type;
+    char* title;
+    size_t slotCount;
+    slot* slots;
+    int16_t flags[9];
+};
+
+typedef enum difficulty_levels{
+    PEACEFUL = 0,
+    EASY = 1,
+    NORMAL = 2,
+    HARD = 3
+} difficulty_t;
+
 struct gamestate{
     union{
         int32_t entityId;
         uint8_t gamemode;
         uint8_t previousGamemode;
+        struct container inventory;
+        slot carried;
     } player;
-    bool hardcore : 1;
+    bool hardcore;
     identifierArray dimensions;
     struct nbt_node* registryCodec;
     identifier dimensionType; //current dimension type
@@ -80,21 +91,24 @@ struct gamestate{
     int maxPlayers;
     int viewDistance;
     int simulationDistance;
-    bool reducedBugInfo : 1;
-    bool respawnScreen : 1;
-    bool debug : 1;
-    bool flat : 1;
-    bool deathLocation : 1;
+    bool reducedBugInfo;
+    bool respawnScreen;
+    bool debug;
+    bool flat;
+    bool deathLocation;
     identifier deathDimension;
     position death;
     int portalCooldown;
-    bool loginPlay : 1; //if we can send packets back during play
+    bool loginPlay; //if we can send packets back during play
     listHead* entityList;
     union{
         struct blockChange* array;
         size_t len;
     } pendingChanges;
     listHead* chunks;
+    difficulty_t difficulty;
+    bool difficultyLocked;
+    struct container* openContainer; //so in theory there can be more than one open container, but the vanilla client doesnt do that
 };
 
 //I am not certain if a list is the best choice for storing chunks, but it handles deletion and appending the best out of all the things i can think of
@@ -120,21 +134,13 @@ typedef struct chunk{
 } chunk;
 
 /*!
- @brief Calculates the size of the nbt tag in the buffer
- @param buff the buffer that contains the nbt tag
- @param inCompound If the tag is contained withing a compound tag
- @return the size of the nbt tag in bytes
-*/
-size_t nbtSize(const byte* buff, bool inCompound);
-
-/*!
  @brief Updates the gamestate based on the packet. The packet should be non special, as in not related to the protocol
  @param input the parsed packet that will be further parsed
  @param output the gamestate that will be updated
  @param entities pointer to cJSON parsed json containing Minecraft entities definitions
  @return -1 for error and 0 for success
 */
-int parsePlayPacket(packet* input, struct gamestate* output, cJSON* entities);
+int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entities, const identifier* globalPalette);
 
 /*!
  @brief Initializes the gamestate struct
