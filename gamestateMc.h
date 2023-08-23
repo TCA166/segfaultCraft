@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <inttypes.h>
+
 #include "mcTypes.h"
 #include "list.h"
 
@@ -15,9 +16,9 @@
 
 //Minecraft entity
 typedef struct entity{
-    int id;
-    UUID_t uid;
-    uint8_t type;
+    int id; 
+    UUID_t uid; //Unique id of this entity
+    uint8_t type; //id of entity class
     double x;
     double y;
     double z;
@@ -29,6 +30,7 @@ typedef struct entity{
     int16_t velocityY;
     int16_t velocityZ;
     uint8_t animation;
+    byte status;
 } entity;
 
 typedef enum block_faces{
@@ -67,50 +69,6 @@ struct container{
     int16_t flags[9];
 };
 
-typedef enum difficulty_levels{
-    PEACEFUL = 0,
-    EASY = 1,
-    NORMAL = 2,
-    HARD = 3
-} difficulty_t;
-
-struct gamestate{
-    union{
-        int32_t entityId;
-        uint8_t gamemode;
-        uint8_t previousGamemode;
-        struct container inventory;
-        slot carried;
-    } player;
-    bool hardcore;
-    identifierArray dimensions;
-    struct nbt_node* registryCodec;
-    identifier dimensionType; //current dimension type
-    identifier dimensionName;
-    int64_t hashedSeed;
-    int maxPlayers;
-    int viewDistance;
-    int simulationDistance;
-    bool reducedBugInfo;
-    bool respawnScreen;
-    bool debug;
-    bool flat;
-    bool deathLocation;
-    identifier deathDimension;
-    position death;
-    int portalCooldown;
-    bool loginPlay; //if we can send packets back during play
-    listHead* entityList;
-    union{
-        struct blockChange* array;
-        size_t len;
-    } pendingChanges;
-    listHead* chunks;
-    difficulty_t difficulty;
-    bool difficultyLocked;
-    struct container* openContainer; //so in theory there can be more than one open container, but the vanilla client doesnt do that
-};
-
 //I am not certain if a list is the best choice for storing chunks, but it handles deletion and appending the best out of all the things i can think of
 
 typedef struct block{
@@ -133,6 +91,75 @@ typedef struct chunk{
     struct section sections[24];
 } chunk;
 
+typedef enum difficulty_levels{
+    PEACEFUL = 0,
+    EASY = 1,
+    NORMAL = 2,
+    HARD = 3
+} difficulty_t;
+
+struct gamestate{
+    union player{
+        int32_t entityId;
+        uint8_t gamemode;
+        uint8_t previousGamemode;
+        struct container inventory;
+        slot carried;
+        float X;
+        float Y;
+        float Z;
+    } player;
+    bool hardcore;
+    identifierArray dimensions;
+    struct nbt_node* registryCodec;
+    identifier dimensionType; //current dimension type
+    identifier dimensionName;
+    int64_t hashedSeed;
+    int maxPlayers;
+    int viewDistance;
+    int simulationDistance;
+    bool reducedBugInfo;
+    bool respawnScreen;
+    bool debug;
+    bool flat;
+    bool deathLocation;
+    identifier deathDimension;
+    position death;
+    int portalCooldown;
+    bool loginPlay; //if we can send packets back during play
+    listHead* entityList;
+    listHead* blockEntities;
+    union pendingChanges{
+        struct blockChange* array;
+        size_t len;
+    } pendingChanges;
+    listHead* chunks;
+    difficulty_t difficulty;
+    bool difficultyLocked;
+    struct container* openContainer; //so in theory there can be more than one open container, but the vanilla client doesn't do that
+    union eventHandlers{ //Every event handler must return an int, with negative values indicating errors and set errno
+        int (*spawnEntityHandler) (entity* e); //function for handling entity spawns
+        int (*animationEntityHandler) (entity* e); //function for handling entity animations
+        int (*entityEventHandler) (entity* e); //function for handling entity events
+        int (*blockActionHandler) (block* b); //function for handling blockActions
+        int (*containerHandler) (struct container* cont); //function for handling container updates. Sent when open container is changed
+        int (*damageHandler) (int32_t eid, int32_t sourceType, int32_t sourceCause, int32_t sourceDirect, bool hasPosition, double sourceX, double sourceY, double sourceZ); //function for handling the damage event
+        int (*explosionHandler) (double X, double Y, double Z, float strength); //function for handling explosions
+        int (*generic[16]) (float value); //array of function pointers that act as generic event handlers
+        int (*hurtAnimationHandler) (entity* e, float yaw);
+        int (*worldBorder) (double oldDiameter);
+    } eventHandlers; 
+    union worldBorder{
+        double X;
+        double Z;
+        double diameter;
+        int64_t speed;
+        int32_t portalBoundary;
+        int32_t warning;
+        int32_t warningT;
+    } worldBorder;
+};
+
 /*!
  @brief Updates the gamestate based on the packet. The packet should be non special, as in not related to the protocol
  @param input the parsed packet that will be further parsed
@@ -147,5 +174,10 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
  @return a properly initialized struct 
 */
 struct gamestate initGamestate();
+
+/*!
+ @brief Frees the chunk and all the blocks
+*/
+void freeChunk(chunk* c);
 
 #endif

@@ -49,6 +49,7 @@ int addElement(listHead* list, void* value){
             index++;
         }
         prev->next = new;
+        new->prev = prev;
     }
     return index;
 }
@@ -58,31 +59,41 @@ listEl* removeElement(listHead* list, int index){
         return NULL;
     }
     listEl* el = list->first;
-    listEl* prev = NULL;
     while(el != NULL){
         if(index == 0){
             break;
         }
         index--;
-        prev = el;
         el = el->next;
     }
     if(el != NULL){
-        el->head = NULL;
-        prev->next = el->next;
-        el->next = NULL;
+        
     }
     return el;
+}
+
+listEl* unlinkElement(listEl* el){
+    listEl* prev = el->prev;
+    prev->next = el->next;
+    el->next->prev = prev;
+    el->head = NULL;
+    el->prev = NULL;
+    el->next = NULL;
+    return prev;
+}
+
+void freeListElement(listEl* el, bool freeValue){
+    if(freeValue){
+        free(el->value);
+    }
+    free(el);
 }
 
 void freeList(listHead* list, bool freeValues){
     listEl* el = list->first;
     while(el != NULL){
-        if(freeValues){
-            free(el->value);
-        }
         listEl* next = el->next;
-        free(el);
+        freeListElement(el, freeValues);
         el = next;
     }
     free(list);

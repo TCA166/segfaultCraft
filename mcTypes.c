@@ -246,7 +246,7 @@ static inline size_t tagSize(const byte* buff, byte type){
 }
 
 slot readSlot(const byte* buff, int* index){
-    getIndex(index);
+    getIndex(index)
     slot result = {};
     result.present = readBool(buff, index);
     if(result.present){
@@ -257,4 +257,32 @@ slot readSlot(const byte* buff, int* index){
         *index += sz;
     }
     return result;
+}
+
+float readFloat(const byte* buff, int* index){
+    getIndex(index)
+    float result = *(float*)buff;
+    *index += sizeof(float);
+    return result;
+}
+
+int64_t readVarLong(const byte* buff, int* index){
+    int64_t value = 0;
+    int position = 0;
+    getIndex(index)
+    while(true){
+        byte currentByte = buff[*index];
+        *index += 1;
+        value |= (int64_t)(currentByte & SEGMENT_BITS) << position;
+
+        if((currentByte & CONTINUE_BIT) == 0) break;
+
+        position += 7;
+
+        if(position >= 64){
+            errno = EOVERFLOW;
+            return 0;
+        }
+    }
+    return value;
 }

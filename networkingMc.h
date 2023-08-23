@@ -16,17 +16,6 @@
 #define STATUS_STATE 1
 #define LOGIN_STATE 2
 
-//Macros
-
-/*!
- @brief Checks if packet is identical to nullPacket
- @param packet the packet to check
- @return true or false
-*/
-#define packetNull(packet) packet.data == NULL && packet.size == -1 && packet.packetId == 0
-//A packet that is considered to be NULL
-#define nullPacket (packet){-1, 0, NULL}
-
 //Functions
 
 /*! 

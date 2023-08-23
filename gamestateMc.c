@@ -11,6 +11,24 @@ static int getEntityId(const cJSON* entities, const char* name);
 
 static block** getBlock(struct gamestate* current, position pos);
 
+#define event(gamestate, name, ...) \
+    int result = (*gamestate->eventHandlers.name)(__VA_ARGS__); \
+    if(result < 0){ \
+        return result; \
+    }
+
+entity* getEntity(listHead* entities, int32_t eid){
+    listEl* el = entities->first;
+    while(el != NULL){
+        entity* e = (entity*)el->value;
+        if(e != NULL && e->id == eid){
+            return e;
+        }
+        el = el->next;
+    }
+    return NULL;
+}
+
 int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entities, const identifier* globalPalette){
     int offset = 0;
     switch(input->packetId){
@@ -30,6 +48,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             e->velocityY = readShort(input->data, &offset);
             e->velocityZ = readShort(input->data, &offset);
             addElement(output->entityList, (void*)e);
+            event(output, spawnEntityHandler, e)
             break;
         }
         case SPAWN_EXPERIENCE_ORB:{
@@ -41,6 +60,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             exp->z = readDouble(input->data, &offset);
             exp->data = (int32_t)readShort(input->data, &offset);
             addElement(output->entityList, (void*)exp);
+            event(output, spawnEntityHandler, exp)
             break;
         }
         case SPAWN_PLAYER:{
@@ -54,19 +74,16 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             player->yaw = readByte(input->data, &offset);
             player->pitch = readByte(input->data, &offset);
             addElement(output->entityList, (void*)player);
+            event(output, spawnEntityHandler, player);
             break;
         }
         case ENTITY_ANIMATION:{
             int32_t eid = readVarInt(input->data, &offset);
             byte animation = readByte(input->data, &offset);
-            listEl* el = output->entityList->first;
-            while(el != NULL){
-                entity* e = (entity*)el->value;
-                if(e != NULL && e->id == eid){
-                    e->animation = animation;
-                    break;
-                }
-                el = el->next;
+            entity* e = getEntity(output->entityList, eid);
+            if(e != NULL){
+                e->animation = animation;
+                event(output, animationEntityHandler, e)
             }
             break;
         }
@@ -116,6 +133,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             block** b = getBlock(output, location);
             if(b != NULL){
                 (*b)->animationData = animationData;
+                event(output, blockActionHandler, *b)
             }
             break;
         }
@@ -138,7 +156,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             break;
         }
         case CHUNK_BIOMES:{
-            int num = readVarInt(input->data, &offset);
+            int32_t num = readVarInt(input->data, &offset);
             while(num > 0){
                 int32_t chunkX = readInt(input->data, &offset);
                 int32_t chunkZ = readInt(input->data, &offset);
@@ -163,6 +181,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
         case CLOSE_CONTAINER:{
             //there is a given window ID; might be worth implementing a system allowing for mutiple open windows?
             output->openContainer = NULL;
+            event(output, containerHandler, NULL)
             break;
         }
         case SET_CONTAINER_CONTENT:{
@@ -185,6 +204,10 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
                 output->openContainer->slotCount = count;
                 free(output->openContainer->slots);
                 output->openContainer->slots = slots;
+                event(output, containerHandler, output->openContainer);
+            }
+            else{
+                free(slots);
             }
             break;
         }
@@ -194,10 +217,168 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             int16_t value = readShort(input->data, &offset);
             if(output->openContainer != NULL && output->openContainer->id == windowId){
                 output->openContainer->flags[property] = value;
+                event(output, containerHandler, output->openContainer);
             }
             break;
         }
-        
+        case SET_CONTAINER_SLOT:{
+            byte windowId = readByte(input->data, &offset);
+            int32_t stateId = readVarInt(input->data, &offset);
+            int16_t slotId = readShort(input->data, &offset);
+            slot data = readSlot(input->data, &offset);
+            if(slotId == 0){
+                output->player.inventory.slots[slotId] = data;
+            }
+            else if(output->openContainer != NULL && output->openContainer->id == windowId){
+                output->openContainer->slots[slotId] = data;
+                event(output, containerHandler, output->openContainer);
+            }
+            break;
+        }
+        case SET_COOLDOWN:{
+            int32_t id = readVarInt(input->data, &offset);
+            output->player.inventory.slots[id].cooldown = readVarInt(input->data, &offset);
+            break;
+        }
+        case CHAT_SUGGESTIONS:{
+            //Unused by the notchian server
+            break;
+        }
+        case PLUGIN_MESSAGE:{
+            //TODO handle
+            break;
+        }
+        case DAMAGE_EVENT:{
+            int32_t entityId = readVarInt(input->data, &offset);
+            int32_t sourceType = readVarInt(input->data, &offset); //What is this for?
+            int32_t sourceCause = readVarInt(input->data, &offset);
+            int32_t sourceDirect = readVarInt(input->data, &offset);
+            bool hasPosition = readBool(input->data, &offset);
+            double sourceX, sourceY, sourceZ; //do not read unless hasPosition == true
+            if(hasPosition){
+                sourceX = readDouble(input->data, &offset);
+                sourceY = readDouble(input->data, &offset);
+                sourceZ = readDouble(input->data, &offset);
+            }
+            event(output, damageHandler, entityId, sourceType, sourceCause, sourceDirect, hasPosition, sourceX, sourceY, sourceZ)
+            break;
+        }
+        case DELETE_MESSAGE:{
+            //TODO implement alongside the rest of the chat packets
+            break;
+        }
+        case DISGUISED_CHAT_MESSAGE:{
+            //TODO
+            break;
+        }
+        case ENTITY_EVENT:{
+            int32_t id = readInt(input->data, &offset);
+            listEl* el = output->entityList->first;
+            while(el != NULL){
+                entity* e = (entity*)el->value;
+                if(e != NULL && e->id == id){
+                    e->status = readByte(input->data, &offset);
+                    event(output, entityEventHandler, e);
+                }
+                el = el->next;
+            }
+            break;
+        }
+        case EXPLOSION:{
+            double X = readDouble(input->data, &offset);
+            double Y = readDouble(input->data, &offset);
+            double Z = readDouble(input->data, &offset);
+            float strength = readFloat(input->data, &offset);
+            //delete the blocks
+            int32_t count = readVarInt(input->data, &offset);
+            while(count > 0){
+                int8_t Xoff = (int8_t)readByte(input->data, &offset);
+                int8_t Yoff = (int8_t)readByte(input->data, &offset);   
+                int8_t Zoff = (int8_t)readByte(input->data, &offset);
+                block** b = getBlock(output, toPosition((X + Xoff), (Y + Yoff), (Z + Zoff)));
+                if(*b != NULL){
+                    free(*b);
+                    *b = NULL;
+                }
+                count--;
+            }
+            output->player.X += readFloat(input->data, &offset);
+            output->player.Y += readFloat(input->data, &offset);
+            output->player.Z += readFloat(input->data, &offset);
+            event(output, explosionHandler, X, Y, Z, strength)
+            break;
+        }
+        case UNLOAD_CHUNK:{
+            int32_t X = readInt(input->data, &offset);
+            int32_t Z = readInt(input->data, &offset);
+            listEl* el = output->chunks->first;
+            while(el != NULL){
+                chunk* c = el->value;
+                if(c != NULL && c->x == X && c->z == Z){
+                    freeChunk(c);
+                    unlinkElement(el);
+                    freeListElement(el, false);
+                }
+                el = el->next;
+            }
+            break;
+        }
+        case GAME_EVENT:{
+            byte eventId = readByte(input->data, &offset);
+            float value = readFloat(input->data, &offset);
+            if(output->eventHandlers.generic[eventId] != NULL){
+                event(output, generic[eventId], value)
+            }
+            break;
+        }
+        case OPEN_HORSE_SCREEN:{
+            byte windowId = readByte(input->data, &offset);
+            int32_t slotCount = readVarInt(input->data, &offset);
+            int32_t eid = readInt(input->data, &offset);
+            entity* horse = getEntity(output->entityList, eid);
+            if(horse == NULL){
+                break;
+            }
+            const cJSON* ent = entities;
+            while(ent != NULL){
+                if(horse->type == cJSON_GetObjectItemCaseSensitive(ent, "id")->valueint){
+                    if(strcmp(cJSON_GetObjectItemCaseSensitive(ent, "class")->valuestring, "HorseEntity") != 0){
+                        break;
+                    }
+                }
+                ent = ent->next;
+            }
+            output->openContainer->id = windowId;
+            output->openContainer->slotCount = slotCount;
+            free(output->openContainer->slots);
+            output->openContainer->slots = NULL;
+            output->openContainer->title = NULL;
+            output->openContainer->type = 1; //TODO change to actual value
+            event(output, containerHandler, output->openContainer)
+            break;
+        }
+        case HURT_ANIMATION:{
+            int32_t eid = readVarInt(input->data, &offset);
+            float yaw = readFloat(input->data, &offset);
+            event(output, hurtAnimationHandler, getEntity(output->entityList, eid), yaw)
+            break;
+        }
+        case INITIALIZE_WORLD_BORDER:{
+            output->worldBorder.X = readDouble(input->data, &offset);
+            output->worldBorder.Z = readDouble(input->data, &offset);
+            double oldDiameter = readDouble(input->data, &offset);
+            output->worldBorder.diameter = readDouble(input->data, &offset);
+            output->worldBorder.speed = readVarLong(input->data, &offset);
+            output->worldBorder.portalBoundary = readVarInt(input->data, &offset);
+            output->worldBorder.warning = readVarInt(input->data, &offset);
+            output->worldBorder.warningT = readVarInt(input->data, &offset);
+            event(output, worldBorder, oldDiameter)
+            break;
+        }
+        case CHUNK_DATA_AND_UPDATE_LIGHT:{
+            //TODO URGENT
+            break;
+        }
         case LOGIN_PLAY:{
             output->loginPlay = true;
             output->player.entityId = readInt(input->data, &offset);
@@ -281,4 +462,18 @@ static block** getBlock(struct gamestate* current, position pos){
         return NULL;
     }
     return &(c->sections[sectionId].blocks[x][y][z]);
+}
+
+void freeChunk(chunk* c){
+    for(uint8_t s = 0; s < 24; s++){
+        for(uint8_t x = 0; x < 16; x++){
+            for(uint8_t y = 0; y < 16; y++){
+                for(uint8_t z = 0; z < 16; z++){
+                    free(c->sections[s].blocks[x][y][z]->type);
+                    free(c->sections[s].blocks[x][y][z]);
+                }
+            }
+        }
+    }
+    free(c);
 }

@@ -23,6 +23,8 @@ typedef int64_t position;
 
 #define positionZ(position) (position << 26 >> 38)
 
+#define toPosition(X, Y, Z) ((position)((int)X & 0x3FFFFFF) << 38) | ((position)((int)Z & 0x3FFFFFF) << 12) | (position)((int)Y & 0xFFF)
+
 /*!
  @struct byteArray
  @brief An array with an attached size_t
@@ -58,7 +60,19 @@ typedef struct slot{
     int32_t id;
     uint8_t count;
     nbt_node* NBT;
+    int32_t cooldown;
 } slot;
+
+//Macros
+
+/*!
+ @brief Checks if packet is identical to nullPacket
+ @param packet the packet to check
+ @return true or false
+*/
+#define packetNull(packet) packet.data == NULL && packet.size == -1 && packet.packetId == 0
+//A packet that is considered to be NULL
+#define nullPacket (packet){-1, 0, NULL}
 
 #define nullStringArray (stringArray){NULL, 0}
 
@@ -212,5 +226,21 @@ size_t nbtSize(const byte* buff, bool inCompound);
  @return the encoded slot
 */
 slot readSlot(const byte* buff, int* index);
+
+/*!
+ @brief Reads a float from the memory
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded float
+*/
+float readFloat(const byte* buff, int* index);
+
+/*!
+ @brief Reads a varLong from memory
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded varLong
+*/
+int64_t readVarLong(const byte* buff, int* index);
 
 #endif

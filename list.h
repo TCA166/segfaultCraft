@@ -18,6 +18,7 @@ struct listHead{
 
 struct listEl{
     listEl* next;
+    listEl* prev;
     void* value;
     listHead* head;
 };
@@ -46,6 +47,13 @@ int addElement(listHead* list, void* value);
 listEl* removeElement(listHead* list, int index);
 
 /*!
+ @brief Unlinks the element from the list
+ @param el the element to unlist
+ @return the previous element to the removed one
+*/
+listEl* unlinkElement(listEl* el);
+
+/*!
  @brief Initializes the list
  @return the initialized list
 */
@@ -57,5 +65,12 @@ listHead* initList();
  @param freeValues whether free(el.value) should be called
 */
 void freeList(listHead* list, bool freeValues);
+
+/*!
+ @brief Frees the list element
+ @param el the list element to be freed
+ @param freeValue should the value of this element be freed
+*/
+void freeListElement(listEl* el, bool freeValue);
 
 #endif

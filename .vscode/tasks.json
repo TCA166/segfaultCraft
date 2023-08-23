@@ -5,7 +5,7 @@
             "label": "Make build",
             "command": "make",
             "args": [
-                "CFLAGS='-g'"
+                "CFLAGS='-g -Wall'"
             ],
             "options": {
                 "cwd": "${fileDirname}"
