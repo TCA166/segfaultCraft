@@ -17,6 +17,11 @@ static block** getBlock(struct gamestate* current, position pos);
         return result; \
     }
 
+#define forBlocks() \
+    for(int x = 0; x < 16; x++)\
+        for(int y = 0; y < 16; y++)\
+            for(int z = 0; z < 16; z++)
+
 entity* getEntity(listHead* entities, int32_t eid){
     listEl* el = entities->first;
     while(el != NULL){
@@ -29,7 +34,8 @@ entity* getEntity(listHead* entities, int32_t eid){
     return NULL;
 }
 
-int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entities, const identifier* globalPalette){
+int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entities, const struct palette* blocks){
+    const int paletteThreshold = 9;
     int offset = 0;
     switch(input->packetId){
         case SPAWN_ENTITY:{
@@ -88,7 +94,15 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             break;
         }
         case AWARD_STATISTICS:{
-            //TODO: finish
+            size_t num = (size_t)readVarInt(input->data, &offset);
+            struct statistic* stats = calloc(num, sizeof(struct statistic));
+            for(int i = 0; i < num; i++){
+                stats[i].category = readVarInt(input->data, &offset);
+                stats[i].id = readVarInt(input->data, &offset);
+                stats[i].value = readVarInt(input->data, &offset);
+            }
+            event(output, displayStats, stats, num);
+            free(stats);
             break;
         }
         case ACKNOWLEDGE_BLOCK_CHANGE:{
@@ -109,7 +123,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             break;
         }
         case SET_BLOCK_DESTROY_STAGE:{
-            int32_t breakingId = readVarInt(input->data, &offset);
+            (void)readVarInt(input->data, &offset);
             position location = (position)readLong(input->data, &offset);
             byte stage = readByte(input->data, &offset);
             block** b = getBlock(output, location);
@@ -124,9 +138,18 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             }
             break;
         }
-        case BLOCK_ENTITY_DATA:;
-            //TODO: HANDLE
+        case BLOCK_ENTITY_DATA:{
+            blockEntity* bEnt = malloc(sizeof(blockEntity));
+            bEnt->location = readLong(input->data, &offset);
+            bEnt->type = readVarInt(input->data, &offset);
+            size_t sz = nbtSize(input->data + offset, false);
+            bEnt->tag = nbt_parse(input->data + offset, sz);
+            block** b = getBlock(output, bEnt->location);
+            if(b != NULL){
+                (*b)->entity = bEnt;
+            }
             break;
+        }
         case BLOCK_ACTION:{
             position location = (position)readLong(input->data, &offset);
             uint16_t animationData = readShort(input->data, &offset);
@@ -142,7 +165,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             int32_t blockId = readVarInt(input->data, &offset);
             block** b = getBlock(output, location);
             if(b != NULL){
-                (*b)->type = globalPalette[blockId];
+                (*b)->type = blocks->palette[blockId];
             }
             break;
         }
@@ -161,8 +184,15 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
                 int32_t chunkX = readInt(input->data, &offset);
                 int32_t chunkZ = readInt(input->data, &offset);
                 byteArray chunk = readByteArray(input->data, &offset);
-                //TODO finish
+                int chunkOffset = 0;
+                for(int i = 0; i < 24; i++){
+                    if(chunkOffset >= chunk.len){
+                        break;
+                    }
+
+                }
                 free(chunk.bytes);
+                num--;
             }
             break;
         }
@@ -186,7 +216,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
         }
         case SET_CONTAINER_CONTENT:{
             byte windowId = readByte(input->data, &offset);
-            int32_t stateId = readVarInt(input->data, &offset);
+            (void)readVarInt(input->data, &offset);
             int32_t count = readVarInt(input->data, &offset);
             slot* slots = calloc(count, sizeof(slot));
             short n = 0;
@@ -223,7 +253,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
         }
         case SET_CONTAINER_SLOT:{
             byte windowId = readByte(input->data, &offset);
-            int32_t stateId = readVarInt(input->data, &offset);
+            (void)readVarInt(input->data, &offset);
             int16_t slotId = readShort(input->data, &offset);
             slot data = readSlot(input->data, &offset);
             if(slotId == 0){
@@ -376,7 +406,47 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             break;
         }
         case CHUNK_DATA_AND_UPDATE_LIGHT:{
-            //TODO URGENT
+            int32_t chunkX = readInt(input->data, &offset);
+            int32_t chunkZ = readInt(input->data, &offset);
+            //we skip the nbt tag
+            offset += nbtSize(input->data + offset, false);
+            byteArray data = readByteArray(input->data, &offset);
+            //now we need to parse chunk data
+            {
+                int localOffset = 0;
+                for(int i = 0; i < 24; i++){ //foreach section
+                    if(localOffset >= data.len){ //if there are less than 24 section we need to detect that
+                        break;
+                    }
+                    struct section s = {};
+                    s.nonAir = readShort(data.bytes, &localOffset);
+                    byte bitsPerEntry = readByte(data.bytes, &localOffset);
+                    if(bitsPerEntry == 0){ //the palette contains a single value and the dataArray is empty
+                        int32_t globalId = readVarInt(data.bytes, &localOffset);
+                        //and this id in the global palette indicates what every block in section is
+                        forBlocks(){
+                            s.blocks[x][y][z] = malloc(sizeof(block));
+                            memset(s.blocks[x][y][z], 0, sizeof(block));
+                            s.blocks[x][y][z]->type = blocks->palette[globalId];
+                            s.blocks[x][y][z]->x = x;
+                            s.blocks[x][y][z]->y = y;
+                            s.blocks[x][y][z]->z = z;
+                        }
+
+                    }
+                    else if(bitsPerEntry < paletteThreshold){
+                        //the given amount of bits is the size of elements in the array
+                    }
+                    else{
+                        //the ceilf(log2f(size of palette)) is the size of elements in the array
+                    }
+                }
+            }
+            int32_t blockEntityCount = readVarInt(input->data, &offset);
+            for(int i = 0; i < blockEntityCount; i++){
+                
+            }
+            //MAYBE handle the light data here
             break;
         }
         case LOGIN_PLAY:{

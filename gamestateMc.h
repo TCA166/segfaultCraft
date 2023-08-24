@@ -14,6 +14,23 @@
 
 //Types
 
+struct palette{
+    identifier* palette;
+    size_t sz;
+};
+
+struct statistic{
+    int32_t category;
+    int32_t id;
+    int32_t value;
+};
+
+typedef struct blockEntity{
+    position location;
+    int32_t type;
+    nbt_node* tag;
+} blockEntity;
+
 //Minecraft entity
 typedef struct entity{
     int id; 
@@ -78,10 +95,12 @@ typedef struct block{
     identifier type;
     byte stage;
     uint16_t animationData;
+    blockEntity* entity;
 } block;
 
 struct section{
     uint8_t y;
+    uint16_t nonAir;
     block* blocks[16][16][16];
 };
 
@@ -148,6 +167,7 @@ struct gamestate{
         int (*generic[16]) (float value); //array of function pointers that act as generic event handlers
         int (*hurtAnimationHandler) (entity* e, float yaw);
         int (*worldBorder) (double oldDiameter);
+        int (*displayStats) (struct statistic* stats, size_t num);
     } eventHandlers; 
     union worldBorder{
         double X;
@@ -167,7 +187,7 @@ struct gamestate{
  @param entities pointer to cJSON parsed json containing Minecraft entities definitions
  @return -1 for error and 0 for success
 */
-int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entities, const identifier* globalPalette);
+int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entities, const struct palette* blocks);
 
 /*!
  @brief Initializes the gamestate struct
