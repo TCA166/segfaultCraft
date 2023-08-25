@@ -1,6 +1,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+
+#include <math.h>
+
 #include "gamestateMc.h"
 #include "packetDefinitions.h"
 #include "stdbool.h"
@@ -21,6 +24,12 @@ static block** getBlock(struct gamestate* current, position pos);
     for(int x = 0; x < 16; x++)\
         for(int y = 0; y < 16; y++)\
             for(int z = 0; z < 16; z++)
+
+#define yToSection(y) (y + (4 * 16)) >> 4
+
+#define createLongMask(startBit, X) ((((uint64_t)1) << X) - 1) << startBit
+
+#define statesFormula(x, y, z) (y*16*16) + (z*16) + x
 
 entity* getEntity(listHead* entities, int32_t eid){
     listEl* el = entities->first;
@@ -406,47 +415,124 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             break;
         }
         case CHUNK_DATA_AND_UPDATE_LIGHT:{
-            int32_t chunkX = readInt(input->data, &offset);
-            int32_t chunkZ = readInt(input->data, &offset);
+            chunk* newChunk = malloc(sizeof(chunk));
+            newChunk->x = readInt(input->data, &offset);
+            newChunk->z = readInt(input->data, &offset);
             //we skip the nbt tag
             offset += nbtSize(input->data + offset, false);
             byteArray data = readByteArray(input->data, &offset);
             //now we need to parse chunk data
-            {
-                int localOffset = 0;
-                for(int i = 0; i < 24; i++){ //foreach section
-                    if(localOffset >= data.len){ //if there are less than 24 section we need to detect that
-                        break;
+            int localOffset = 0;
+            for(int i = 0; i < 24; i++){ //foreach section
+                if(localOffset >= data.len){ //if there are less than 24 section we need to detect that
+                    break;
+                }
+                struct section s = {};
+                s.nonAir = readShort(data.bytes, &localOffset);
+                byte bitsPerEntry = readByte(data.bytes, &localOffset);
+                if(bitsPerEntry == 0){ //the palette contains a single value and the dataArray is empty
+                    int32_t globalId = readVarInt(data.bytes, &localOffset);
+                    //and this id in the global palette indicates what every block in section is
+                    forBlocks(){
+                        s.blocks[x][y][z] = malloc(sizeof(block));
+                        memset(s.blocks[x][y][z], 0, sizeof(block));
+                        s.blocks[x][y][z]->type = blocks->palette[globalId];
+                        s.blocks[x][y][z]->x = x;
+                        s.blocks[x][y][z]->y = y;
+                        s.blocks[x][y][z]->z = z;
                     }
-                    struct section s = {};
-                    s.nonAir = readShort(data.bytes, &localOffset);
-                    byte bitsPerEntry = readByte(data.bytes, &localOffset);
-                    if(bitsPerEntry == 0){ //the palette contains a single value and the dataArray is empty
-                        int32_t globalId = readVarInt(data.bytes, &localOffset);
-                        //and this id in the global palette indicates what every block in section is
-                        forBlocks(){
-                            s.blocks[x][y][z] = malloc(sizeof(block));
-                            memset(s.blocks[x][y][z], 0, sizeof(block));
-                            s.blocks[x][y][z]->type = blocks->palette[globalId];
-                            s.blocks[x][y][z]->x = x;
-                            s.blocks[x][y][z]->y = y;
-                            s.blocks[x][y][z]->z = z;
-                        }
-
-                    }
-                    else if(bitsPerEntry < paletteThreshold){
-                        //the given amount of bits is the size of elements in the array
+                    (void)readVarInt(input->data, &offset); //we need to offset by the data array length field
+                }
+                else{
+                    uint32_t* localPalette = NULL;
+                    if(bitsPerEntry >= paletteThreshold){
+                        //the ceilf(log2f(size of palette)) is the size of elements in the array
+                        bitsPerEntry = (byte)ceilf(log2f((float)blocks->sz));
+                        //and the local palette is the global palette
                     }
                     else{
-                        //the ceilf(log2f(size of palette)) is the size of elements in the array
+                        //else we just keep the value
+                        int32_t paletteLength = readVarInt(input->data, &offset);
+                        localPalette = calloc(paletteLength, sizeof(uint32_t));
+                        for(int i = 0; i < paletteLength; i++){
+                            localPalette[i] = readVarInt(input->data, &offset);
+                        }
+                    }
+                    //and now we need to get the states
+                    unsigned short numPerLong = (unsigned short)(64/bitsPerEntry);
+                    unsigned short index = 0;
+                    int32_t numLongs = readVarInt(input->data, &offset);
+                    uint32_t* states = calloc(numPerLong * numLongs, sizeof(uint32_t));
+                    for(int l = 0; l < numLongs; l++){
+                        uint64_t ourLong = readLong(input->data, &offset);
+                        for(unsigned short b = 0; b < numPerLong; b++){
+                            if(index >= 4096){
+                                break;
+                            }
+                            unsigned short bits = b * bitsPerEntry;
+                            uint64_t mask = createLongMask(bits, bitsPerEntry);
+                            states[index] = (unsigned int)((mask & ourLong) >> bits);
+                            index++;
+                        }
+                    }
+                    //and now foreach block
+                    forBlocks(){    
+                        //get the state
+                        int id = states[statesFormula(x, y, z)];
+                        if(localPalette != NULL){ //apply the localPallete if necessary
+                            id = localPalette[id];
+                        }
+                        s.blocks[x][y][z]->x = x;
+                        s.blocks[x][y][z]->y = y;
+                        s.blocks[x][y][z]->z = z;
+                        //and then apply the global palette and boom type gotten
+                        s.blocks[x][y][z]->type = blocks->palette[id];
                     }
                 }
+                newChunk->sections[i] = s;
             }
             int32_t blockEntityCount = readVarInt(input->data, &offset);
             for(int i = 0; i < blockEntityCount; i++){
-                
+                blockEntity* bEnt = malloc(sizeof(blockEntity));
+                byte packedXZ = readByte(input->data, &offset);
+                uint8_t secX = packedXZ >> 4;
+                uint8_t secZ = packedXZ & 15;
+                int16_t Y = readShort(input->data, &offset);
+                int16_t sectionId = yToSection(Y);
+                bEnt->location = toPosition(secX + (newChunk->x * 16), Y, secZ + (newChunk->z * 16));
+                bEnt->type = readVarInt(input->data, &offset);
+                size_t sizeNbt = nbtSize(input->data + offset, false);
+                bEnt->tag = nbt_parse(input->data + offset, sizeNbt);
+                offset += sizeNbt;
+                //and now we have to find the block in the chunk
+                newChunk->sections[sectionId].blocks[secX][Y - (sectionId * 16)][secZ]->entity = bEnt;
             }
             //MAYBE handle the light data here
+            break;
+        }
+        case WORLD_EVENT:{
+            //Well there's no point in trying to represent sounds in the gamestate 
+            event(output, worldEvent, readInt(input->data, &offset), readLong(input->data, &offset), readInt(input->data, &offset), readBool(input->data, &offset));
+            break;
+        }
+        case PARTICLE_2:{
+            struct particle new;
+            new.id = readVarInt(input->data, &offset);
+            new.longDistance = readBool(input->data, &offset);
+            new.x = readDouble(input->data, &offset);
+            new.y = readDouble(input->data, &offset);
+            new.z = readDouble(input->data, &offset);
+            new.offsetX = readFloat(input->data, &offset);
+            new.offsetY = readFloat(input->data, &offset);
+            new.offsetZ = readFloat(input->data, &offset);
+            new.maxSpeed = readFloat(input->data, &offset);
+            new.count = readInt(input->data, &offset);
+            new.data = input->data + offset;
+            event(output, particleSpawn, &new);
+            break;
+        }
+        case UPDATE_LIGHT:{
+            //MAYBE handle this
             break;
         }
         case LOGIN_PLAY:{
@@ -517,7 +603,7 @@ static block** getBlock(struct gamestate* current, position pos){
     int z = positionZ(pos);
     short chunkX = x >> 4;
     short chunkZ = z >> 4;
-    short sectionId = (y + (4 * 16)) >> 4;
+    short sectionId = yToSection(y);
     listEl* e = current->chunks->first;
     chunk* c = NULL;
     while(e != NULL){
@@ -531,16 +617,25 @@ static block** getBlock(struct gamestate* current, position pos){
     if(c == NULL){
         return NULL;
     }
+    x -= chunkX * 16;
+    z -= chunkZ * 16;
+    y -= sectionId * 16;
     return &(c->sections[sectionId].blocks[x][y][z]);
 }
 
 void freeChunk(chunk* c){
     for(uint8_t s = 0; s < 24; s++){
-        for(uint8_t x = 0; x < 16; x++){
-            for(uint8_t y = 0; y < 16; y++){
-                for(uint8_t z = 0; z < 16; z++){
-                    free(c->sections[s].blocks[x][y][z]->type);
-                    free(c->sections[s].blocks[x][y][z]);
+        if(c->sections[s].nonAir > 0){
+            for(uint8_t x = 0; x < 16; x++){
+                for(uint8_t y = 0; y < 16; y++){
+                    for(uint8_t z = 0; z < 16; z++){
+                        if(c->sections[s].blocks[x][y][z] != NULL){
+                            free(c->sections[s].blocks[x][y][z]->type);
+                            nbt_free(c->sections[s].blocks[x][y][z]->entity->tag);
+                            free(c->sections[s].blocks[x][y][z]->entity);
+                            free(c->sections[s].blocks[x][y][z]);
+                        }
+                    }
                 }
             }
         }

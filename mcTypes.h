@@ -5,6 +5,8 @@
 
 #include "cNBT/nbt.h"
 
+//Just look at all of these... peculiar types. position especially
+
 typedef uint8_t byte;
 
 //Type for Minecraft UUID which should be unsigned int128
@@ -15,15 +17,39 @@ typedef uint8_t angle_t;
 //Minecraft identifier - a string in this format space:name
 typedef char* identifier;
 
+//Special minecraft type for storing position as an array of 2 int26 and 1 int12
 typedef int64_t position;
 
+//Macros
+
+/*!
+ @brief Checks if packet is identical to nullPacket
+ @param packet the packet to check
+ @return true or false
+*/
+#define packetNull(packet) packet.data == NULL && packet.size == -1 && packet.packetId == 0
+//A packet that is considered to be NULL
+#define nullPacket (packet){-1, 0, NULL}
+
+#define nullStringArray (stringArray){NULL, 0}
+
+#define SEGMENT_BITS 0x7F
+#define CONTINUE_BIT 0x80
+
+#define MAX_VAR_INT 4
+#define MAX_VAR_LONG 8
+
+//Gets the X from position
 #define positionX(position) (position >> 38)
 
+//Gets the Y from position
 #define positionY(position) (position << 52 >> 52)
 
+//Gets the Z from position
 #define positionZ(position) (position << 26 >> 38)
 
-#define toPosition(X, Y, Z) ((position)((int)X & 0x3FFFFFF) << 38) | ((position)((int)Z & 0x3FFFFFF) << 12) | (position)((int)Y & 0xFFF)
+//Converts a set of ints into a position type
+#define toPosition(X, Y, Z) ((position)((int)(X) & 0x3FFFFFF) << 38) | ((position)((int)(Z) & 0x3FFFFFF) << 12) | (position)((int)(Y) & 0xFFF)
 
 /*!
  @struct byteArray
@@ -62,25 +88,6 @@ typedef struct slot{
     nbt_node* NBT;
     int32_t cooldown;
 } slot;
-
-//Macros
-
-/*!
- @brief Checks if packet is identical to nullPacket
- @param packet the packet to check
- @return true or false
-*/
-#define packetNull(packet) packet.data == NULL && packet.size == -1 && packet.packetId == 0
-//A packet that is considered to be NULL
-#define nullPacket (packet){-1, 0, NULL}
-
-#define nullStringArray (stringArray){NULL, 0}
-
-#define SEGMENT_BITS 0x7F
-#define CONTINUE_BIT 0x80
-
-#define MAX_VAR_INT 4
-#define MAX_VAR_LONG 8
 
 /*! 
  @brief Writes the given value to the buffer as VarInt

@@ -25,6 +25,20 @@ struct statistic{
     int32_t value;
 };
 
+struct particle{
+    int32_t id;
+    bool longDistance;
+    double x;
+    double y;
+    double z;
+    float offsetX;
+    float offsetY;
+    float offsetZ;
+    float maxSpeed;
+    int32_t count;
+    void* data;
+};
+
 typedef struct blockEntity{
     position location;
     int32_t type;
@@ -105,8 +119,8 @@ struct section{
 };
 
 typedef struct chunk{
-    int x;
-    int z;
+    int32_t x;
+    int32_t z;
     struct section sections[24];
 } chunk;
 
@@ -168,6 +182,9 @@ struct gamestate{
         int (*hurtAnimationHandler) (entity* e, float yaw);
         int (*worldBorder) (double oldDiameter);
         int (*displayStats) (struct statistic* stats, size_t num);
+        int (*worldEvent) (int32_t event, position location, int32_t data, bool disableRelativeVolume);
+        int (*particleSpawn) (struct particle* new);
+
     } eventHandlers; 
     union worldBorder{
         double X;

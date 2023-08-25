@@ -1,6 +1,6 @@
 
 client: segfaultCraft.o cJSON.o client.c
-	gcc $(CFLAGS) client.c segfaultCraft.o cJSON.o -o client -lz
+	gcc $(CFLAGS) client.c segfaultCraft.o cJSON.o -o client -lz -lm
 
 segfaultCraft.o: networkingMc.o mcTypes.o gamestateMc.o list.o cNBT.o
 	ld -relocatable networkingMc.o mcTypes.o gamestateMc.o list.o cNBT.o -o segfaultCraft.o
@@ -28,7 +28,7 @@ cJSON.o: cJSON/cJSON.c
 	gcc cJSON/cJSON.c -o cJSON.o -c $(CFLAGS)
 
 client.exe: client.c segfaultCraft.ow cJSON.ow
-	x86_64-w64-mingw32-gcc-win32 $(CFLAGS) client.c -lws2_32 segfaultCraft.ow -lws2_32 cJSON.ow -o client -lz -lbcrypt
+	x86_64-w64-mingw32-gcc-win32 $(CFLAGS) client.c -lws2_32 segfaultCraft.ow -lws2_32 cJSON.ow -o client -lz -lm -lbcrypt
 
 segfaultCraft.ow: networkingMc.ow mcTypes.ow gamestateMc.ow list.ow cNBT.ow
 	x86_64-w64-mingw32-ld -relocatable networkingMc.ow mcTypes.ow gamestateMc.ow cNBT.ow list.ow -o segfaultCraft.ow
