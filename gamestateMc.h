@@ -134,13 +134,17 @@ typedef enum difficulty_levels{
 struct gamestate{
     union player{
         int32_t entityId;
-        uint8_t gamemode;
-        uint8_t previousGamemode;
+        byte gamemode;
+        byte previousGamemode;
+        byte heldSlot;
         struct container inventory;
         slot carried;
         float X;
         float Y;
         float Z;
+        byte flags;
+        float flyingSpeed;
+        float fovModifier;
     } player;
     bool hardcore;
     identifierArray dimensions;
@@ -195,6 +199,10 @@ struct gamestate{
         int32_t warning;
         int32_t warningT;
     } worldBorder;
+    union feature_flags{
+        size_t count;
+        identifier* flags;
+    } featureFlags;
 };
 
 /*!

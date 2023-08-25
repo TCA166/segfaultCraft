@@ -508,6 +508,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
                 newChunk->sections[sectionId].blocks[secX][Y - (sectionId * 16)][secZ]->entity = bEnt;
             }
             //MAYBE handle the light data here
+            addElement(output->chunks, newChunk);
             break;
         }
         case WORLD_EVENT:{
@@ -574,6 +575,29 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             }
             output->portalCooldown = readVarInt(input->data, &offset);
             break;  
+        }
+        case PLAYER_ABILITIES:{
+            output->player.flags = readByte(input->data, &offset);
+            output->player.flyingSpeed = readFloat(input->data, &offset);
+            output->player.fovModifier = readFloat(input->data, &offset);
+            break;
+        }
+        case SET_HELD_ITEM:{
+            output->player.heldSlot = readByte(input->data, &offset);
+            break;
+        }
+        case FEATURE_FLAGS:{
+            int32_t count = readVarInt(input->data, &offset);
+            output->featureFlags.flags = calloc(count, sizeof(identifier));
+            for(int i = 0; i < count; i++){
+                output->featureFlags.flags[i] = readString(input->data, &offset);
+            }
+            output->featureFlags.count = count;
+            break;
+        }
+        case UPDATE_RECIPES:{
+            //TODO handle
+            break;
         }
         default:{
             errno = EINVAL;
