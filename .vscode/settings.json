@@ -21,7 +21,11 @@
         "packetdefinitions.h": "c",
         "stdio.h": "c",
         "cjson.h": "c",
-        "functional": "c"
+        "functional": "c",
+        "compare": "c",
+        "tuple": "c",
+        "type_traits": "c",
+        "utility": "c"
     },
     "C_Cpp.default.compilerPath": "/usr/bin/gcc"
 }

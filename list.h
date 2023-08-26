@@ -6,14 +6,16 @@
 #ifndef LIST_OUR_H
 #define LIST_OUR_H
 
+//A wrapper struct for a doubly linked list
 typedef struct listHead listHead;
 
+//An element in a doubly linked list
 typedef struct listEl listEl;
 
-//Head for list
 struct listHead{
     listEl* first;
     size_t len;
+    listEl* last;
 };
 
 struct listEl{
@@ -22,6 +24,9 @@ struct listEl{
     void* value;
     listHead* head;
 };
+
+#define foreachListElement(list) \
+    for(listEl* el = list->first; el != NULL; el=el->next)
 
 /*!
  @brief Gets the element in list at index

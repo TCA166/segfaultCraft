@@ -42,15 +42,11 @@ int addElement(listHead* list, void* value){
         list->first = new;
     }
     else{
-        listEl* prev = NULL;
-        while(el != NULL){
-            prev = el;
-            el = el->next;
-            index++;
-        }
+        listEl* prev = list->last;
         prev->next = new;
         new->prev = prev;
     }
+    list->last = new;
     return index;
 }
 

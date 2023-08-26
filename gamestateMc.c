@@ -10,15 +10,51 @@
 #include "cNBT/nbt.h"
 #include "cJSON/cJSON.h"
 
+/*!
+ @brief Gets the id of the entity type with the given name from the parsed JSON
+ @param entities a parsed JSON object containing definitions all the different Minecraft entity types
+ @param name the name of the entity
+ @return the id
+*/
 static int getEntityId(const cJSON* entities, const char* name);
 
+/*!
+ @brief Gets the double pointer to the block with the given position within the gamestate
+ @param current the currently worked on gamestate
+ @param pos the block position
+ @return NULL or the double pointer
+*/
 static block** getBlock(struct gamestate* current, position pos);
 
+/*!
+ @brief Gets the entity with the given eid from the linked list
+ @param entities the linked list containing the entity
+ @param eid the id of the entity
+ @return NULL or a reference to the entity
+*/
+entity* getEntity(listHead* entities, int32_t eid);
+
+/*!
+ @brief Parses raw bytes into an entity metadata object
+ @param input the raw bytes
+ @param offset the pointer to the current pointer withing input
+ @return a new entity metadata object
+*/
+static struct entityMetadata* parseEntityMetadata(byte* input, int* offset);
+
+/*!
+ @brief Removes the chunk from the chunk list, and frees it's contents
+ @param el the list element the chunk is attached to
+*/
+static void unloadChunk(listEl* el);
+
 #define event(gamestate, name, ...) \
-    int result = (*gamestate->eventHandlers.name)(__VA_ARGS__); \
-    if(result < 0){ \
-        return result; \
-    }
+    if(gamestate->eventHandlers.name != NULL){ \
+        int result = (*gamestate->eventHandlers.name)(__VA_ARGS__); \
+        if(result < 0){ \
+            return result; \
+        } \
+    } 
 
 #define forBlocks() \
     for(int x = 0; x < 16; x++)\
@@ -43,18 +79,6 @@ static block** getBlock(struct gamestate* current, position pos);
 #define INFO_UPDATE 0x08
 #define INFO_PING 0x10
 #define INFO_DISPLAY 0x20
-
-entity* getEntity(listHead* entities, int32_t eid){
-    listEl* el = entities->first;
-    while(el != NULL){
-        entity* e = (entity*)el->value;
-        if(e != NULL && e->id == eid){
-            return e;
-        }
-        el = el->next;
-    }
-    return NULL;
-}
 
 int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVersion* version){
     const int paletteThreshold = 9;
@@ -365,12 +389,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             int32_t Z = readInt(input->data, &offset);
             listEl* el = output->chunks->first;
             while(el != NULL){
-                chunk* c = el->value;
-                if(c != NULL && c->x == X && c->z == Z){
-                    freeChunk(c);
-                    unlinkElement(el);
-                    freeListElement(el, false);
-                }
+                unloadChunk(el);
                 el = el->next;
             }
             break;
@@ -491,10 +510,11 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     //and now foreach block
                     forBlocks(){    
                         //get the state
-                        int id = states[statesFormula(x, y, z)];
+                        int id = states[statesFormula(x, y, z)]; //ERROR:Invalid values here
                         if(localPalette != NULL){ //apply the localPallete if necessary
                             id = localPalette[id];
                         }
+                        s.blocks[x][y][z] = malloc(sizeof(block));
                         s.blocks[x][y][z]->x = x;
                         s.blocks[x][y][z]->y = y;
                         s.blocks[x][y][z]->z = z;
@@ -587,6 +607,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 output->deathDimension = readString(input->data, &offset);
                 output->death = readLong(input->data, &offset);
             }
+            //invalid read here of size 1. It seems we read after the packet. Idk why 
             output->portalCooldown = readVarInt(input->data, &offset);
             break;  
         }
@@ -597,10 +618,12 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case PLAYER_INFO_UPDATE:{
+            //this variable defines what info is appended to each player info element 
             byte actions = readByte(input->data, &offset);
-            int32_t number = readVarInt(input->data, &offset);
-            for(int i = 0; i < number; i++){
+            output->playerInfo.number = readVarInt(input->data, &offset);
+            for(int i = 0; i < output->playerInfo.number; i++){
                 struct genericPlayer* new = malloc(sizeof(struct genericPlayer));
+                new->id = readUUID(input->data, &offset);
                 if(actions & INFO_ADD_PLAYER){
                     new->name = readString(input->data, &offset);
                     new->properties = initList();
@@ -642,7 +665,6 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 }
                 addElement(output->playerInfo.players, new);
             }
-            output->playerInfo.number = number;
             break;
         }
         case SYNCHRONIZE_PLAYER_POSITION:{
@@ -666,6 +688,48 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case SET_HELD_ITEM:{
             output->player.heldSlot = readByte(input->data, &offset);
+            break;
+        }
+        case SET_CENTER_CHUNK:{
+            int32_t chunkX = readVarInt(input->data, &offset);
+            int32_t chunkZ = readVarInt(input->data, &offset);
+            if(output->player.currentChunk != NULL && output->player.currentChunk->x == chunkX && output->player.currentChunk->z == chunkZ){
+                break;
+            }
+            foreachListElement(output->chunks){
+                chunk* c = el->value;
+                if(c->x == chunkX && c->z == chunkZ){
+                    output->player.currentChunk = c;
+                }
+                if(c->x > chunkX + output->viewDistance || c->z > chunkZ + output->viewDistance){
+                    unloadChunk(el);
+                }
+            }
+            break;
+        }
+        case SET_DEFAULT_SPAWN_POSITION:{
+            output->defaultSpawnPosition.location = readLong(input->data, &offset);
+            output->defaultSpawnPosition.angle = readFloat(input->data, &offset);
+            break;
+        }
+        case SET_ENTITY_METADATA:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* our = getEntity(output->entityList, eid);
+            if(our != NULL){
+                while(true){
+                    byte index = readByte(input->data, &offset);
+                    if(index == 0xff){
+                        break;
+                    }
+                    struct entityMetadata* new = parseEntityMetadata(input->data, &offset);
+                    addElement(our->metadata, new);
+                }
+            }
+            break;            
+        }
+        case UPDATE_TIME:{
+            output->worldAge = readLong(input->data, &offset);
+            output->timeOfDay = readLong(input->data, &offset);
             break;
         }
         case SYSTEM_CHAT_MESSAGE:{
@@ -803,4 +867,169 @@ int handleSynchronizePlayerPosition(packet* input, struct gamestate* output, int
         output->player.pitch = pitch;
     }
     return 0;
+}
+
+entity* getEntity(listHead* entities, int32_t eid){
+    listEl* el = entities->first;
+    while(el != NULL){
+        entity* e = (entity*)el->value;
+        if(e != NULL && e->id == eid){
+            return e;
+        }
+        el = el->next;
+    }
+    return NULL;
+}
+
+static void unloadChunk(listEl* el){
+    chunk* c = el->value;
+    if(c != NULL){
+        freeChunk(c);
+        unlinkElement(el);
+        freeListElement(el, false);
+    }
+}
+
+static struct entityMetadata* parseEntityMetadata(byte* input, int* offset){
+    struct entityMetadata* new = malloc(sizeof(struct entityMetadata));
+    new->type = readVarInt(input, offset);
+    switch(new->type){
+        case BYTE:{
+            new->value.BYTE = readByte(input, offset);
+            break;
+        }
+        case VAR_INT:{
+            new->value.VAR_INT = readVarInt(input, offset);
+            break;
+        }
+        case VAR_LONG:{
+            new->value.VAR_LONG = readVarLong(input, offset);
+            break;
+        }
+        case FLOAT:{
+            new->value.FLOAT = readFloat(input, offset);
+            break;
+        }
+        case STRING:{
+            new->value.STRING = readString(input, offset);
+            break;
+        }
+        case CHAT:{
+            new->value.CHAT = readString(input, offset);
+            break;
+        }
+        case OPT_CHAT:{
+            bool present = readBool(input, offset);
+            if(present){
+                new->value.OPT_CHAT = readString(input, offset);
+            }
+            else{
+                new->value.OPT_CHAT = NULL;
+            }
+            break;
+        }
+        case SLOT:{
+            new->value.SLOT = readSlot(input, offset);
+            break;
+        }
+        case BOOLEAN:{
+            new->value.BOOLEAN = readBool(input, offset);
+            break;
+        }
+        case ROTATION:{
+            for(int i = 0; i < 3; i++){
+                new->value.ROTATION[i] = readFloat(input, offset);
+            }
+            break;
+        }
+        case POSITION:{
+            new->value.POSITION = readLong(input, offset);
+            break;
+        }
+        case OPT_POSITION:{
+            new->value.OPT_POSITION.present = readBool(input, offset);
+            if(new->value.OPT_POSITION.present){
+                new->value.OPT_POSITION.value = readLong(input, offset);
+            }
+            break;
+        }
+        case DIRECTION:{
+            new->value.DIRECTION = readVarInt(input, offset);
+            break;
+        }
+        case OPT_UUID:{
+            new->value.OPT_UUID.present = readBool(input, offset);
+            if(new->value.OPT_UUID.present){
+                new->value.OPT_UUID.value = readUUID(input, offset);
+            }
+            break;
+        }
+        case BLOCK_ID:{
+            new->value.BLOCK_ID = readVarInt(input, offset);
+            break;
+        }
+        case OPT_BLOCK_ID:{
+            new->value.OPT_BLOCK_ID = readVarInt(input, offset);
+            break;
+        }
+        case NBT:{
+            size_t sz = nbtSize(input + *offset, false);
+            new->value.NBT = nbt_parse(input + *offset, sz);
+            offset += sz;
+            break;
+        }
+        case PARTICLE:{
+            //TODO figure out how does a particle look like
+            break;
+        }
+        case VILLAGER_DATA:{
+            new->value.VILLAGER_DATA = readVarInt(input, offset);
+            break;
+        }
+        case OPT_VAR_INT:{
+            new->value.OPT_VAR_INT = readVarInt(input, offset);
+            break;
+        }
+        case POSE:{
+            new->value.POSE = readVarInt(input, offset);
+            break;
+        }
+        case CAT_VARIANT:{
+            new->value.CAT_VARIANT = readVarInt(input, offset);
+            break;
+        }
+        case FROG_VARIANT:{
+            new->value.FROG_VARIANT = readVarInt(input, offset);
+            break;
+        }
+        case OPT_GLOBAL_POS:{
+            new->value.OPT_GLOBAL_POS.present = readBool(input, offset);
+            if(new->value.OPT_GLOBAL_POS.present){
+                new->value.OPT_GLOBAL_POS.dimension = readString(input, offset);
+                new->value.OPT_GLOBAL_POS.pos = readLong(input, offset);
+            }
+            break;
+        }
+        case PAINTING_VARIANT:{
+            new->value.PAINTING_VARIANT = readVarInt(input, offset);
+            break;
+        }
+        case SNIFFER_STATE:{
+            new->value.SNIFFER_STATE = readVarInt(input, offset);
+            break;
+        }
+        case VECTOR3:{
+            for(int i = 0; i < 3; i++){
+                new->value.VECTOR3[i] = readFloat(input, offset);
+            }
+            break;
+        }
+        case QUATERNION:{
+            for(int i = 0; i < 4; i++){
+                new->value.QUATERNION[i] = readFloat(input, offset);
+            }
+            break;
+        }
+    }
+    return new;
 }

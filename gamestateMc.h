@@ -45,6 +45,81 @@ typedef struct blockEntity{
     nbt_node* tag;
 } blockEntity;
 
+typedef enum metadataTypes{
+    BYTE = 0,
+    VAR_INT = 1,
+    VAR_LONG = 2,
+    FLOAT = 3,
+    STRING = 4,
+    CHAT = 5,
+    OPT_CHAT = 6,
+    SLOT = 7,
+    BOOLEAN = 8,
+    ROTATION = 9,
+    POSITION = 10,
+    OPT_POSITION = 11,
+    DIRECTION = 12,
+    OPT_UUID = 13,
+    BLOCK_ID = 14,
+    OPT_BLOCK_ID = 15,
+    NBT = 16,
+    PARTICLE = 17,
+    VILLAGER_DATA = 18,
+    OPT_VAR_INT = 19,
+    POSE = 20,
+    CAT_VARIANT = 21,
+    FROG_VARIANT = 22,
+    OPT_GLOBAL_POS = 23,
+    PAINTING_VARIANT = 24,
+    SNIFFER_STATE = 25,
+    VECTOR3 = 26,
+    QUATERNION = 27
+} metadataType_t;
+
+struct entityMetadata{
+    metadataType_t type;
+    union value{
+        byte BYTE;
+        int32_t VAR_INT;
+        int64_t VAR_LONG;
+        float FLOAT;
+        char* STRING;
+        char* CHAT;
+        char* OPT_CHAT; //NULLABLE!
+        slot SLOT;
+        bool BOOLEAN;
+        float ROTATION[3];
+        position POSITION;
+        struct optPosition{
+            bool present;
+            position value;
+        } OPT_POSITION;
+        int32_t DIRECTION;
+        struct optUUID{
+            bool present;
+            UUID_t value;
+        } OPT_UUID;
+        int32_t BLOCK_ID;
+        int32_t OPT_BLOCK_ID;
+        nbt_node* NBT;
+        void* PARTICLE;
+        int32_t VILLAGER_DATA;
+        int32_t OPT_VAR_INT;
+        int32_t POSE;
+        int32_t CAT_VARIANT;
+        int32_t FROG_VARIANT;
+        struct optGlobalPos{
+            bool present;
+            identifier dimension;
+            position pos;
+        } OPT_GLOBAL_POS;
+        int32_t PAINTING_VARIANT;
+        int32_t SNIFFER_STATE;
+        float VECTOR3[3];
+        float QUATERNION[4];
+    } value;
+};
+
 //Minecraft entity
 typedef struct entity{
     int id; 
@@ -62,6 +137,7 @@ typedef struct entity{
     int16_t velocityZ;
     uint8_t animation;
     byte status;
+    listHead* metadata;
 } entity;
 
 typedef enum block_faces{
@@ -139,6 +215,7 @@ struct property{
 
 struct genericPlayer{
     char* name;
+    UUID_t id;
     listHead* properties;
     uint8_t gamemode;
     bool listed;
@@ -154,7 +231,7 @@ struct genericPlayer{
 };
 
 struct gamestate{
-    union player{
+    struct player{ //data on our player
         int32_t entityId;
         byte gamemode;
         byte previousGamemode;
@@ -169,7 +246,10 @@ struct gamestate{
         byte flags;
         float flyingSpeed;
         float fovModifier;
+        chunk* currentChunk;
     } player;
+    int64_t worldAge;
+    int64_t timeOfDay;
     bool hardcore;
     identifierArray dimensions;
     struct nbt_node* registryCodec;
@@ -190,7 +270,7 @@ struct gamestate{
     bool loginPlay; //if we can send packets back during play
     listHead* entityList;
     listHead* blockEntities;
-    union pendingChanges{
+    struct pendingChanges{ //Array of changes that have been sent to the server, but haven't been acknowledged by the server
         struct blockChange* array;
         size_t len;
     } pendingChanges;
@@ -198,7 +278,7 @@ struct gamestate{
     difficulty_t difficulty;
     bool difficultyLocked;
     struct container* openContainer; //so in theory there can be more than one open container, but the vanilla client doesn't do that
-    union eventHandlers{ //Every event handler must return an int, with negative values indicating errors and set errno
+    struct eventHandlers{ //Every event handler must return an int, with negative values indicating errors and set errno
         int (*spawnEntityHandler) (entity* e); //function for handling entity spawns
         int (*animationEntityHandler) (entity* e); //function for handling entity animations
         int (*entityEventHandler) (entity* e); //function for handling entity events
@@ -213,7 +293,7 @@ struct gamestate{
         int (*worldEvent) (int32_t event, position location, int32_t data, bool disableRelativeVolume);
         int (*particleSpawn) (struct particle* new);
     } eventHandlers; 
-    union worldBorder{
+    struct worldBorder{
         double X;
         double Z;
         double diameter;
@@ -221,23 +301,28 @@ struct gamestate{
         int32_t portalBoundary;
         int32_t warning;
         int32_t warningT;
-    } worldBorder;
-    union feature_flags{
+    } worldBorder; 
+    struct feature_flags{ //Flags that determine what vanilla content is present
         size_t count;
         identifier* flags;
     } featureFlags;
-    union server_data{
+    struct server_data{ //the data you expect to see on the server list
         char* MOTD;
         bool hasIcon;
         byteArray icon;
         bool secureChat;
     } serverData;
-    union player_info{
+    struct player_info{ //the kind of data you expect to see on the player list
         int32_t number;
         listHead* players;
     } playerInfo;
+    struct default_spawn_position{
+        position location;
+        float angle;
+    } defaultSpawnPosition;
 };
 
+//Struct that contains all necessary info that determine what game features are present in our game version
 struct gameVersion{
     const cJSON* entities;
     const struct palette* blocks;
