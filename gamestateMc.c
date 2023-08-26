@@ -156,7 +156,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             for(int i = 0; i < output->pendingChanges.len; i++){
                 struct blockChange* change = output->pendingChanges.array + i;
                 if(change->sequenceId == sequenceChange){
-                    //TODO handle rest
+                    //TODO: handle rest of the cases
                     if(change->status == FINISHED_DIGGING){
                         block** b = getBlock(output, change->location);
                         if(b != NULL){
@@ -211,12 +211,12 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             int32_t blockId = readVarInt(input->data, &offset);
             block** b = getBlock(output, location);
             if(b != NULL){
-                (*b)->type = version->blocks->palette[blockId];
+                (*b)->type = version->blocks.palette[blockId];
             }
             break;
         }
         case BOSS_BAR:{
-            //TODO finish this
+            //TODO: implement this
             break;
         }
         case CHANGE_DIFFICULTY:{
@@ -243,15 +243,15 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case CLEAR_TITLES:{
-            //TODO finish and figure out what is this for
+            //TODO: finish and figure out what is this for
             break;
         }
         case COMMAND_SUGGESTIONS_RESPONSE:{
-            //TODO handle
+            //TODO: handle
             break;
         }
         case COMMANDS:{
-            //TODO handle
+            //TODO: handle
             break;
         }
         case CLOSE_CONTAINER:{
@@ -321,7 +321,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case PLUGIN_MESSAGE:{
-            //TODO handle
+            //TODO: handle
             break;
         }
         case DAMAGE_EVENT:{
@@ -340,11 +340,11 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case DELETE_MESSAGE:{
-            //TODO implement alongside the rest of the chat packets
+            //TODO: implement alongside the rest of the chat packets
             break;
         }
         case DISGUISED_CHAT_MESSAGE:{
-            //TODO
+            //TODO: implement alongside the rest of the chat system
             break;
         }
         case ENTITY_EVENT:{
@@ -389,7 +389,9 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             int32_t Z = readInt(input->data, &offset);
             listEl* el = output->chunks->first;
             while(el != NULL){
-                unloadChunk(el);
+                if(((chunk*)el->value)->x == X && ((chunk*)el->value)->z == Z){
+                    unloadChunk(el);
+                }
                 el = el->next;
             }
             break;
@@ -424,7 +426,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             free(output->openContainer->slots);
             output->openContainer->slots = NULL;
             output->openContainer->title = NULL;
-            output->openContainer->type = 1; //TODO change to actual value
+            output->openContainer->type = 1; //TODO: change to actual value
             event(output, containerHandler, output->openContainer)
             break;
         }
@@ -451,24 +453,25 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             newChunk->x = readInt(input->data, &offset);
             newChunk->z = readInt(input->data, &offset);
             //we skip the nbt tag
-            offset += nbtSize(input->data + offset, false);
-            byteArray data = readByteArray(input->data, &offset);
+            size_t sz = nbtSize(input->data + offset, false);
+            offset += sz;
+            //here instead of needlessly slowing down the execution I forego using readByteArray
+            size_t byteArrayLimit = readVarInt(input->data, &offset) + offset;
             //now we need to parse chunk data
-            int localOffset = 0;
             for(int i = 0; i < 24; i++){ //foreach section
-                if(localOffset >= data.len){ //if there are less than 24 section we need to detect that
+                if(offset >= byteArrayLimit){ //if there are less than 24 section we need to detect that
                     break;
                 }
                 struct section s = {};
-                s.nonAir = readShort(data.bytes, &localOffset);
-                byte bitsPerEntry = readByte(data.bytes, &localOffset);
+                s.nonAir = readShort(input->data, &offset);
+                byte bitsPerEntry = readByte(input->data, &offset);
                 if(bitsPerEntry == 0){ //the palette contains a single value and the dataArray is empty
-                    int32_t globalId = readVarInt(data.bytes, &localOffset);
+                    int32_t globalId = readVarInt(input->data, &offset);
                     //and this id in the global palette indicates what every block in section is
                     forBlocks(){
                         s.blocks[x][y][z] = malloc(sizeof(block));
                         memset(s.blocks[x][y][z], 0, sizeof(block));
-                        s.blocks[x][y][z]->type = version->blocks->palette[globalId];
+                        s.blocks[x][y][z]->type = version->blocks.palette[globalId];
                         s.blocks[x][y][z]->x = x;
                         s.blocks[x][y][z]->y = y;
                         s.blocks[x][y][z]->z = z;
@@ -477,51 +480,71 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 }
                 else{
                     uint32_t* localPalette = NULL;
+                    size_t paletteLength = 0;
                     if(bitsPerEntry >= paletteThreshold){
                         //the ceilf(log2f(size of palette)) is the size of elements in the array
-                        bitsPerEntry = (byte)ceilf(log2f((float)version->blocks->sz));
+                        bitsPerEntry = (byte)ceilf(log2f((float)version->blocks.sz));
                         //and the local palette is the global palette
                     }
                     else{
+                        if(bitsPerEntry < 4){
+                            bitsPerEntry = 4;
+                        }
                         //else we just keep the value
-                        int32_t paletteLength = readVarInt(input->data, &offset);
+                        paletteLength = readVarInt(input->data, &offset);
                         localPalette = calloc(paletteLength, sizeof(uint32_t));
-                        for(int i = 0; i < paletteLength; i++){
-                            localPalette[i] = readVarInt(input->data, &offset);
+                        for(int n = 0; n < paletteLength; n++){
+                            uint32_t element = readVarInt(input->data, &offset);
+                            //sanity check 1
+                            if(element > version->blocks.sz){
+                                errno = E2BIG;
+                                return -1;
+                            }
+                            localPalette[n] = element;
                         }
                     }
                     //and now we need to get the states
-                    unsigned short numPerLong = (unsigned short)(64/bitsPerEntry);
-                    unsigned short index = 0;
-                    int32_t numLongs = readVarInt(input->data, &offset);
-                    uint32_t* states = calloc(numPerLong * numLongs, sizeof(uint32_t));
+                    uint16_t numPerLong = (uint16_t)(64/bitsPerEntry); //number of elements of the array in a single long
+                    uint16_t index = 0; //the current MAIN array index
+                    int32_t numLongs = readVarInt(input->data, &offset); //the number of longs the MAIN array has been split into
+                    uint32_t* states = calloc(numPerLong * numLongs, sizeof(uint32_t)); //the states
                     for(int l = 0; l < numLongs; l++){
                         uint64_t ourLong = readLong(input->data, &offset);
-                        for(unsigned short b = 0; b < numPerLong; b++){
+                        for(uint8_t b = 0; b < numPerLong; b++){
                             if(index >= 4096){
                                 break;
                             }
-                            unsigned short bits = b * bitsPerEntry;
-                            uint64_t mask = createLongMask(bits, bitsPerEntry);
-                            states[index] = (unsigned int)((mask & ourLong) >> bits);
+                            uint16_t bits = b * bitsPerEntry;
+                            uint32_t state = (uint32_t)((createLongMask(bits, bitsPerEntry) & ourLong) >> bits);
+                            //sanity check 2
+                            if((localPalette != NULL && state > paletteLength) || state > version->blocks.sz){
+                                errno = E2BIG; //FIXME: this sometimes can happen
+                                return -2;
+                            }
+                            states[index] = state;
                             index++;
                         }
                     }
                     //and now foreach block
                     forBlocks(){    
+                        //initialize the new block
+                        block* newBlock = malloc(sizeof(block));
+                        newBlock->entity = NULL;
+                        newBlock->animationData = 0;
+                        newBlock->stage = 0;
                         //get the state
-                        int id = states[statesFormula(x, y, z)]; //ERROR:Invalid values here
-                        if(localPalette != NULL){ //apply the localPallete if necessary
+                        int id = states[statesFormula(x, y, z)]; //FIXME:Invalid values here
+                        if(localPalette != NULL){ //apply the localPalette if necessary
                             id = localPalette[id];
                         }
-                        s.blocks[x][y][z] = malloc(sizeof(block));
-                        s.blocks[x][y][z]->x = x;
-                        s.blocks[x][y][z]->y = y;
-                        s.blocks[x][y][z]->z = z;
                         //and then apply the global palette and boom type gotten
-                        s.blocks[x][y][z]->type = version->blocks->palette[id];
+                        newBlock->type = version->blocks.palette[id];
+                        newBlock->x = x;
+                        newBlock->y = y;
+                        newBlock->z = z;
+                        s.blocks[x][y][z] = newBlock;
                     }
-                    //TODO handle biomes
+                    //TODO: handle biomes
                 }
                 newChunk->sections[i] = s;
             }
@@ -541,7 +564,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 //and now we have to find the block in the chunk
                 newChunk->sections[sectionId].blocks[secX][Y - (sectionId * 16)][secZ]->entity = bEnt;
             }
-            //MAYBE handle the light data here
+            //MAYBE: handle the light data here
             addElement(output->chunks, newChunk);
             break;
         }
@@ -567,7 +590,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case UPDATE_LIGHT:{
-            //MAYBE handle this
+            //MAYBE: handle this
             break;
         }
         case LOGIN_PLAY:{
@@ -673,7 +696,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case UPDATE_RECIPE_BOOK:{
-            //MAYBE
+            //MAYBE:
             break;
         }
         case SERVER_DATA:{
@@ -733,7 +756,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case SYSTEM_CHAT_MESSAGE:{
-            //TODO handle
+            //TODO: handle
             break;
         }
         case FEATURE_FLAGS:{
@@ -746,12 +769,12 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case UPDATE_RECIPES:{
-            //MAYBE, is this necessary?
+            //MAYBE: is this necessary?
             break;
         }
         case UPDATE_TAGS:{
             //int32_t count = readVarInt(input->data, &offset);
-            //MAYBE, what is this for?
+            //MAYBE:, what is this for?
             break;
         }
         default:{
@@ -979,7 +1002,7 @@ static struct entityMetadata* parseEntityMetadata(byte* input, int* offset){
             break;
         }
         case PARTICLE:{
-            //TODO figure out how does a particle look like
+            //TODO: figure out how does a particle look like
             break;
         }
         case VILLAGER_DATA:{

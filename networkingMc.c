@@ -302,7 +302,7 @@ int loginState(int socketFd, packet* response, UUID_t* given, const char* userna
                     return -2;
                 }
                 offset += userNameLen;
-                int numProperties = readVarInt(response->data, &offset);
+                //int numProperties = readVarInt(response->data, &offset);
                 login = false;
                 break;
             case SET_COMPRESSION:; //Set compression
@@ -352,25 +352,24 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
     if(version == NULL){
         return -1;
     }
+    struct gameVersion thisVersion = {};
     //then we get the entities list (I could do with a hashmap here)
-    const cJSON* entities = cJSON_GetObjectItemCaseSensitive(version, "entities");
-    if(version == NULL){
+    thisVersion.entities = cJSON_GetObjectItemCaseSensitive(version, "entities");
+    if(thisVersion.entities == NULL){
         return -2;
     }
-    identifier* globalPalette = NULL;
     //then we create a lookup table
     {
         const cJSON* blocks = cJSON_GetObjectItemCaseSensitive(version, "blocks");
-        int blocksLen = cJSON_GetArraySize(blocks);
-        globalPalette = calloc(blocksLen, sizeof(identifier));
+        thisVersion.blocks.sz = cJSON_GetArraySize(blocks);
+        thisVersion.blocks.palette = calloc(thisVersion.blocks.sz, sizeof(identifier));
         cJSON* child = blocks->child;
-        for(int i = 0; i < blocksLen; i++){
+        for(int i = 0; i < thisVersion.blocks.sz; i++){
             cJSON* id = cJSON_GetObjectItemCaseSensitive(child, "id");
-            globalPalette[id->valueint] = child->string;
+            thisVersion.blocks.palette[id->valueint] = child->string;
             child = child->next;
         }
     }
-    struct gameVersion gameVersion = {entities, globalPalette};
     bool play = true;
     int index = 0;
     int offset = 0;
@@ -385,7 +384,7 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
                 else{
                     //process the backlog
                     for(int i = 0; i < index; i++){
-                        if(parsePlayPacket(backlog + i, current, &gameVersion) != 0){
+                        if(parsePlayPacket(backlog + i, current, &thisVersion) != 0){
                             return -3;
                         }
                     }
@@ -417,7 +416,7 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
             default:;
                 if(backlog == NULL){
                     //process the packet
-                    if(parsePlayPacket(&response, current, &gameVersion) != 0){
+                    if(parsePlayPacket(&response, current, &thisVersion) != 0){
                         return -3;
                     }
                 }

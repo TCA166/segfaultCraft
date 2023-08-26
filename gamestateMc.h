@@ -325,7 +325,7 @@ struct gamestate{
 //Struct that contains all necessary info that determine what game features are present in our game version
 struct gameVersion{
     const cJSON* entities;
-    const struct palette* blocks;
+    struct palette blocks;
 };
 
 /*!
