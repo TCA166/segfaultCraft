@@ -31,6 +31,19 @@ static block** getBlock(struct gamestate* current, position pos);
 
 #define statesFormula(x, y, z) (y*16*16) + (z*16) + x
 
+#define FLAGS_X 0x01
+#define FLAGS_Y 0x02
+#define FLAGS_Z 0x04
+#define FLAGS_Y_ROT 0x08
+#define FLAGS_X_ROT 0x10
+
+#define INFO_ADD_PLAYER 0x01
+#define INFO_INIT_CHAT 0x02
+#define INFO_GAMEMODE 0x04
+#define INFO_UPDATE 0x08
+#define INFO_PING 0x10
+#define INFO_DISPLAY 0x20
+
 entity* getEntity(listHead* entities, int32_t eid){
     listEl* el = entities->first;
     while(el != NULL){
@@ -43,7 +56,7 @@ entity* getEntity(listHead* entities, int32_t eid){
     return NULL;
 }
 
-int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entities, const struct palette* blocks){
+int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVersion* version){
     const int paletteThreshold = 9;
     int offset = 0;
     switch(input->packetId){
@@ -69,7 +82,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
         case SPAWN_EXPERIENCE_ORB:{
             entity* exp = malloc(sizeof(entity));
             exp->id = readVarInt(input->data, &offset);
-            exp->type = getEntityId(entities, "minecraft:experience_orb");
+            exp->type = getEntityId(version->entities, "minecraft:experience_orb");
             exp->x = readDouble(input->data, &offset);
             exp->y = readDouble(input->data, &offset);
             exp->z = readDouble(input->data, &offset);
@@ -82,7 +95,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             entity* player = malloc(sizeof(entity));
             player->id = readVarInt(input->data, &offset);
             player->uid = readUUID(input->data, &offset);
-            player->type = getEntityId(entities, "minecraft:player");
+            player->type = getEntityId(version->entities, "minecraft:player");
             player->x = readDouble(input->data, &offset);
             player->y = readDouble(input->data, &offset);
             player->z = readDouble(input->data, &offset);
@@ -174,7 +187,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             int32_t blockId = readVarInt(input->data, &offset);
             block** b = getBlock(output, location);
             if(b != NULL){
-                (*b)->type = blocks->palette[blockId];
+                (*b)->type = version->blocks->palette[blockId];
             }
             break;
         }
@@ -378,7 +391,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             if(horse == NULL){
                 break;
             }
-            const cJSON* ent = entities;
+            const cJSON* ent = version->entities;
             while(ent != NULL){
                 if(horse->type == cJSON_GetObjectItemCaseSensitive(ent, "id")->valueint){
                     if(strcmp(cJSON_GetObjectItemCaseSensitive(ent, "class")->valuestring, "HorseEntity") != 0){
@@ -436,7 +449,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
                     forBlocks(){
                         s.blocks[x][y][z] = malloc(sizeof(block));
                         memset(s.blocks[x][y][z], 0, sizeof(block));
-                        s.blocks[x][y][z]->type = blocks->palette[globalId];
+                        s.blocks[x][y][z]->type = version->blocks->palette[globalId];
                         s.blocks[x][y][z]->x = x;
                         s.blocks[x][y][z]->y = y;
                         s.blocks[x][y][z]->z = z;
@@ -447,7 +460,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
                     uint32_t* localPalette = NULL;
                     if(bitsPerEntry >= paletteThreshold){
                         //the ceilf(log2f(size of palette)) is the size of elements in the array
-                        bitsPerEntry = (byte)ceilf(log2f((float)blocks->sz));
+                        bitsPerEntry = (byte)ceilf(log2f((float)version->blocks->sz));
                         //and the local palette is the global palette
                     }
                     else{
@@ -486,8 +499,9 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
                         s.blocks[x][y][z]->y = y;
                         s.blocks[x][y][z]->z = z;
                         //and then apply the global palette and boom type gotten
-                        s.blocks[x][y][z]->type = blocks->palette[id];
+                        s.blocks[x][y][z]->type = version->blocks->palette[id];
                     }
+                    //TODO handle biomes
                 }
                 newChunk->sections[i] = s;
             }
@@ -582,8 +596,80 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             output->player.fovModifier = readFloat(input->data, &offset);
             break;
         }
+        case PLAYER_INFO_UPDATE:{
+            byte actions = readByte(input->data, &offset);
+            int32_t number = readVarInt(input->data, &offset);
+            for(int i = 0; i < number; i++){
+                struct genericPlayer* new = malloc(sizeof(struct genericPlayer));
+                if(actions & INFO_ADD_PLAYER){
+                    new->name = readString(input->data, &offset);
+                    new->properties = initList();
+                    int32_t propertyCount = readVarInt(input->data, &offset);
+                    for(int p = 0; p < propertyCount; p++){
+                        struct property* prop = malloc(sizeof(struct property));
+                        prop->name = readString(input->data, &offset);
+                        prop->value = readString(input->data, &offset);
+                        if(readBool(input->data, &offset)){
+                            prop->signature = readString(input->data, &offset);
+                        }
+                        else{
+                            prop->signature = NULL;
+                        }
+                    }
+                }
+                if(actions & INFO_INIT_CHAT){
+                    new->signatureData.present = readBool(input->data, &offset);
+                    if(new->signatureData.present){
+                        new->signatureData.chatSessionId = readUUID(input->data, &offset);
+                        new->signatureData.keyExpiry = readLong(input->data, &offset);
+                        new->signatureData.encodedPublicKey = readByteArray(input->data, &offset);
+                        new->signatureData.publicKeySignature = readByteArray(input->data, &offset);
+                    }
+                }
+                if(actions & INFO_GAMEMODE){
+                    new->gamemode = readVarInt(input->data, &offset);
+                }
+                if(actions & INFO_UPDATE){
+                    new->listed = readBool(input->data, &offset);
+                }
+                if(actions & INFO_PING){
+                    new->ping = readVarInt(input->data, &offset);
+                }
+                if(actions & INFO_DISPLAY){
+                    if(readBool(input->data, &offset)){
+                        new->displayName = readString(input->data, &offset);
+                    }
+                }
+                addElement(output->playerInfo.players, new);
+            }
+            output->playerInfo.number = number;
+            break;
+        }
+        case SYNCHRONIZE_PLAYER_POSITION:{
+            //this is the non responsive version of the handler
+            handleSynchronizePlayerPosition(input, output, &offset);
+            break;
+        }
+        case UPDATE_RECIPE_BOOK:{
+            //MAYBE
+            break;
+        }
+        case SERVER_DATA:{
+            output->serverData.MOTD = readString(input->data, &offset);
+            output->serverData.hasIcon = readBool(input->data, &offset);
+            output->serverData.icon = nullByteArray;
+            if(output->serverData.hasIcon){
+                output->serverData.icon = readByteArray(input->data, &offset);
+            }
+            output->serverData.secureChat = readBool(input->data, &offset);
+            break;
+        }
         case SET_HELD_ITEM:{
             output->player.heldSlot = readByte(input->data, &offset);
+            break;
+        }
+        case SYSTEM_CHAT_MESSAGE:{
+            //TODO handle
             break;
         }
         case FEATURE_FLAGS:{
@@ -596,7 +682,12 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
             break;
         }
         case UPDATE_RECIPES:{
-            //TODO handle
+            //MAYBE, is this necessary?
+            break;
+        }
+        case UPDATE_TAGS:{
+            //int32_t count = readVarInt(input->data, &offset);
+            //MAYBE, what is this for?
             break;
         }
         default:{
@@ -610,8 +701,11 @@ int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entiti
 
 struct gamestate initGamestate(){
     struct gamestate g = {};
+    memset(&g, 0, sizeof(struct gamestate));
     g.entityList = initList();
     g.chunks = initList();
+    g.blockEntities = initList();
+    g.playerInfo.players = initList();
     return g;
 }
 
@@ -665,4 +759,48 @@ void freeChunk(chunk* c){
         }
     }
     free(c);
+}
+
+int handleSynchronizePlayerPosition(packet* input, struct gamestate* output, int* offset){
+    if(input->packetId != SYNCHRONIZE_PLAYER_POSITION){
+        errno = EINVAL;
+        return -1;
+    }
+    double X = readDouble(input->data, offset);
+    double Y = readDouble(input->data, offset);
+    double Z = readDouble(input->data, offset);
+    float yaw = readFloat(input->data, offset);
+    float pitch = readFloat(input->data, offset);
+    byte flags = readByte(input->data, offset);
+    if(flags & FLAGS_X){
+        output->player.X += X;
+    }
+    else{
+        output->player.X = X;
+    }
+    if(flags & FLAGS_Y){
+        output->player.Y += Y;
+    }
+    else{
+        output->player.Y = Y;
+    }
+    if(flags & FLAGS_Z){
+        output->player.Z += Z;
+    }
+    else{
+        output->player.Z = Z;
+    }
+    if(flags & FLAGS_X_ROT){
+        output->player.yaw += yaw;
+    }
+    else{
+        output->player.yaw = yaw;
+    }
+    if(flags & FLAGS_X_ROT){
+        output->player.pitch += pitch;
+    }
+    else{
+        output->player.pitch = pitch;
+    }
+    return 0;
 }

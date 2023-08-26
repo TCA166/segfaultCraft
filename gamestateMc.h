@@ -131,6 +131,28 @@ typedef enum difficulty_levels{
     HARD = 3
 } difficulty_t;
 
+struct property{
+    char* name;
+    char* value;
+    char* signature;
+};
+
+struct genericPlayer{
+    char* name;
+    listHead* properties;
+    uint8_t gamemode;
+    bool listed;
+    int32_t ping;
+    char* displayName;
+    union signature_data{
+        bool present;
+        UUID_t chatSessionId;
+        int64_t keyExpiry;
+        byteArray encodedPublicKey;
+        byteArray publicKeySignature;
+    } signatureData;
+};
+
 struct gamestate{
     union player{
         int32_t entityId;
@@ -139,9 +161,11 @@ struct gamestate{
         byte heldSlot;
         struct container inventory;
         slot carried;
-        float X;
-        float Y;
-        float Z;
+        double X;
+        double Y;
+        double Z;
+        float yaw;
+        float pitch;
         byte flags;
         float flyingSpeed;
         float fovModifier;
@@ -188,7 +212,6 @@ struct gamestate{
         int (*displayStats) (struct statistic* stats, size_t num);
         int (*worldEvent) (int32_t event, position location, int32_t data, bool disableRelativeVolume);
         int (*particleSpawn) (struct particle* new);
-
     } eventHandlers; 
     union worldBorder{
         double X;
@@ -203,16 +226,31 @@ struct gamestate{
         size_t count;
         identifier* flags;
     } featureFlags;
+    union server_data{
+        char* MOTD;
+        bool hasIcon;
+        byteArray icon;
+        bool secureChat;
+    } serverData;
+    union player_info{
+        int32_t number;
+        listHead* players;
+    } playerInfo;
+};
+
+struct gameVersion{
+    const cJSON* entities;
+    const struct palette* blocks;
 };
 
 /*!
- @brief Updates the gamestate based on the packet. The packet should be non special, as in not related to the protocol
+ @brief Updates the gamestate based on the packet. The packet should be non special, as in not related to the protocol. Packets that require a response will not get that response, and ideally should be handled separately.
  @param input the parsed packet that will be further parsed
  @param output the gamestate that will be updated
- @param entities pointer to cJSON parsed json containing Minecraft entities definitions
+ @param version pointer to a struct that defines all game version dependant constants
  @return -1 for error and 0 for success
 */
-int parsePlayPacket(packet* input, struct gamestate* output, const cJSON* entities, const struct palette* blocks);
+int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVersion* version);
 
 /*!
  @brief Initializes the gamestate struct
@@ -224,5 +262,10 @@ struct gamestate initGamestate();
  @brief Frees the chunk and all the blocks
 */
 void freeChunk(chunk* c);
+
+/*!
+ @brief handles the SYNCHRONIZE_PLAYER_POSITION packet
+*/
+int handleSynchronizePlayerPosition(packet* input, struct gamestate* output, int* offset);
 
 #endif

@@ -370,8 +370,10 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
             child = child->next;
         }
     }
+    struct gameVersion gameVersion = {entities, globalPalette};
     bool play = true;
     int index = 0;
+    int offset = 0;
     packet* backlog = NULL;
     while(play){
         //there are some packet types that need immediate answer and separate processing
@@ -383,7 +385,7 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
                 else{
                     //process the backlog
                     for(int i = 0; i < index; i++){
-                        if(parsePlayPacket(backlog + i, current, entities, globalPalette) != 0){
+                        if(parsePlayPacket(backlog + i, current, &gameVersion) != 0){
                             return -3;
                         }
                     }
@@ -404,10 +406,18 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
                 int32_t pingId = *(int32_t*)response.data;
                 sendPacket(socketFd, sizeof(int32_t), PONG_PLAY, (byte*)&pingId, compression);
                 break;
+            case SYNCHRONIZE_PLAYER_POSITION:;
+                //this is the responsive version of the handler
+                handleSynchronizePlayerPosition(&response, current, &offset);
+                int32_t teleportId = readVarInt(response.data, &offset);
+                byte packet[MAX_VAR_INT] = {};
+                size_t sz = writeVarInt(packet, teleportId);
+                sendPacket(socketFd, sz, CONFIRM_TELEPORTATION, packet, compression);
+                break;
             default:;
                 if(backlog == NULL){
                     //process the packet
-                    if(parsePlayPacket(&response, current, entities, globalPalette) != 0){
+                    if(parsePlayPacket(&response, current, &gameVersion) != 0){
                         return -3;
                     }
                 }
