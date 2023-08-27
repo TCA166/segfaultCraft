@@ -67,9 +67,9 @@ listHead* initList();
 /*!
  @brief Frees the list
  @param list the list to be freed
- @param freeValues whether free(el.value) should be called
+ @param freeValFunc pointer to the function that should be used to free list values, or NULL
 */
-void freeList(listHead* list, bool freeValues);
+void freeList(listHead* list, void (*freeValFunc)(void* val));
 
 /*!
  @brief Frees the list element

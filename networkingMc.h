@@ -60,9 +60,11 @@ ssize_t requestPacket(int socketFd, int packetType, int compression);
  @param socketFd the socket file descriptor
  @param host the host name (address) of the server
  @param protocol the protocol version utilized by the client
+ @param port the port that we are connected to
+ @param nextState what will be requested next
  @return the number of bytes written, EOF or -1 for error
 */
-ssize_t handshake(int socketFd, const char* host, int protocol, short port, int nextState);
+ssize_t handshake(int socketFd, const char* host, int32_t protocol, uint16_t port, int32_t nextState);
 
 /*!
  @brief Performs a ping-pong interaction with the server and returns the delay
@@ -104,9 +106,9 @@ int loginState(int socketFd, packet* response, UUID_t* given, const char* userna
  @param response the unparsed packet from the login state
  @param socketFd the file descriptor of the socket used for communication with the server
  @param compression the established compression level
- @param versionJson the filename of the version definition json
+ @param thisVersion a previously created version struct
  @return the result of the process. Negative values indicate errors. Positive graceful disconnects
 */
-int playState(struct gamestate* current, packet response, int socketFd, int compression, const char* versionJSON);
+int playState(struct gamestate* current, packet response, int socketFd, int compression, const struct gameVersion* thisVersion);
 
 #endif

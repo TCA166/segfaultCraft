@@ -2,6 +2,8 @@
 
 #include <stdbool.h>
 #include <inttypes.h>
+//NOTE: I tend to use types from inttypes when dealing with ints that play a part in the protocol and MUST have a set size. 
+//However things like socketFds and indexes dont't need to be a set size so there I tend to use generic ints and shorts
 
 #include "cNBT/nbt.h"
 
@@ -139,7 +141,7 @@ size_t writeByteArray(byte* buff, byteArray arr);
 byteArray readByteArray(const byte* buff, int* index);
 
 /*!
- @brief Reads an int32 from the buffer at index
+ @brief Reads a little endian int32 from the buffer at index
  @param buff the buffer to read from
  @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
  @return the encoded int32
@@ -147,7 +149,7 @@ byteArray readByteArray(const byte* buff, int* index);
 int32_t readInt(const byte* buff, int* index);
 
 /*!
- @brief Reads an int32 from the buffer and then swaps the endianness
+ @brief Reads a big endian int32 from the buffer and then swaps the endianness
  @param buff the buffer to read from
  @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
  @return the encoded int32
@@ -161,6 +163,22 @@ int32_t readBigEndianInt(const byte* buff, int* index);
  @return the encoded int64
 */
 int64_t readLong(const byte* buff, int* index);
+
+/*!
+ @brief Reads a big endian int64 from the buffer and then swaps the endianness
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded int64
+*/
+int64_t readBigEndianLong(const byte* buff, int* offset);
+
+/*!
+ @brief Reads a big endian int64 from the buffer and then swaps the endianness without preserving the sign bit
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded uint64
+*/
+uint64_t readBigEndianULong(const byte* buff, int* offset);
 
 /*!
  @brief Read a boolean from the buffer at index
@@ -187,6 +205,30 @@ byte readByte(const byte* buff, int* index);
 stringArray readStringArray(const byte* buff, int* index);
 
 /*!
+ @brief Writes a short to the buffer
+ @param buff the buffer to write to
+ @param num the number to write
+ @return the amount of bytes written
+*/
+size_t writeShort(byte* buff, int16_t num);
+
+/*!
+ @brief Swaps the endianness and then writes a short to the buffer
+ @param buff the buffer to write to
+ @param num the number to write
+ @return the amount of bytes written
+*/
+size_t writeBigEndianShort(byte* buff, int16_t num);
+
+/*!
+ @brief Swaps the endianness without preserving the sign bit and then writes a short to the buffer
+ @param buff the buffer to write to
+ @param num the number to write
+ @return the amount of bytes written
+*/
+size_t writeBigEndianUShort(byte* buff, uint16_t num);
+
+/*!
  @brief Reads a short from the buffer at index
  @param buff the buffer to read from
  @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
@@ -203,6 +245,14 @@ int16_t readShort(const byte* buff, int* index);
 int16_t readBigEndianShort(const byte* buff, int* index);
 
 /*!
+ @brief Reads an unsigned short from the buffer at index and then swaps the endianness without preserving the position of the sign bit
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded short
+*/
+uint16_t readBigEndianUShort(const byte* buff, int* index);
+
+/*!
  @brief Reads a UUID from the buffer at index
  @param buff the buffer to read from
  @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
@@ -217,6 +267,14 @@ UUID_t readUUID(const byte* buff, int* index);
  @return the encoded double
 */
 double readDouble(const byte* buff, int* index);
+
+/*!
+ @brief Reads a double from the buffer at index and then swaps the endianness
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded double
+*/
+double readBigEndianDouble(const byte* buff, int* offset);
 
 /*!
  @brief Calculates the size of the nbt tag in the buffer
@@ -241,6 +299,14 @@ slot readSlot(const byte* buff, int* index);
  @return the encoded float
 */
 float readFloat(const byte* buff, int* index);
+
+/*!
+ @brief Reads a float from memory and then swaps the endianness
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded float
+*/
+float readBigEndianFloat(const byte* buff, int* offset);
 
 /*!
  @brief Reads a varLong from memory

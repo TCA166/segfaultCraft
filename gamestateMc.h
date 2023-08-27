@@ -324,6 +324,7 @@ struct gamestate{
 
 //Struct that contains all necessary info that determine what game features are present in our game version
 struct gameVersion{
+    const cJSON* json;
     const cJSON* entities;
     struct palette blocks;
 };
@@ -344,6 +345,11 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
 struct gamestate initGamestate();
 
 /*!
+ @brief Frees a gamestate struct in it's entirety
+*/
+void freeGamestate(struct gamestate* g);
+
+/*!
  @brief Frees the chunk and all the blocks
 */
 void freeChunk(chunk* c);
@@ -352,5 +358,25 @@ void freeChunk(chunk* c);
  @brief handles the SYNCHRONIZE_PLAYER_POSITION packet
 */
 int handleSynchronizePlayerPosition(packet* input, struct gamestate* output, int* offset);
+
+/*!
+ @brief Creates a version struct
+*/
+struct gameVersion* createVersionStruct(const char* versionJSON);
+
+/*!
+ @brief Frees a previously created version struct
+*/
+void freeVersionStruct(struct gameVersion* version);
+
+/*!
+ @brief Frees a block entity
+*/
+void freeBlockEntity(blockEntity* e);
+
+/*!
+ @brief Frees a generic player struct
+*/
+void freeGenericPlayer(struct genericPlayer* p);
 
 #endif

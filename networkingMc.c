@@ -55,15 +55,15 @@ ssize_t requestPacket(int socketFd, int packetType, int compression){
     return sendPacket(socketFd, 0, packetType, NULL, compression);
 }
 
-ssize_t handshake(int socketFd, const char* host, int protocol, short port, int nextState){
+ssize_t handshake(int socketFd, const char* host, int32_t protocol, uint16_t port, int32_t nextState){
     size_t hostLen = strlen(host);
     size_t handshakeLen = sizeof(int16_t) + (MAX_VAR_INT * 3) + hostLen;
     byte* handshake = calloc(handshakeLen, sizeof(byte));
     size_t off1 = writeVarInt(handshake, protocol); //max 5 bytes
     size_t off2 = writeString(handshake + off1, host, hostLen);
-    memcpy(handshake + off1 + off2, &port, sizeof(int16_t));
-    size_t off3 = writeVarInt(handshake + off1 + off2 + sizeof(int16_t), nextState);
-    handshakeLen = sizeof(int16_t) + off1 + off2 + off3;
+    size_t off3 = writeBigEndianUShort(handshake + off1 + off2, port);
+    size_t off4 = writeVarInt(handshake + off1 + off2 + off3, nextState);
+    handshakeLen = off1 + off2 + off3 + off4;
     ssize_t res = sendPacket(socketFd, handshakeLen, HANDSHAKE, handshake, NO_COMPRESSION);
     free(handshake);
     return res;
@@ -107,7 +107,10 @@ ssize_t sendPacket(int socketFd, int size, int packetId, const byte* data, int c
         size_t sizeP = writeVarInt(packet, destLen + sizeL);
         memcpy(packet + sizeP, l, sizeL);
         memcpy(packet + sizeP + sizeL, dataToCompress, destLen);
-        return write(socketFd, packet, destLen + sizeP + sizeL);
+        free(dataToCompress);
+        ssize_t res = write(socketFd, packet, destLen + sizeP + sizeL);
+        free(packet);
+        return res;
     }
 }
 
@@ -333,47 +336,12 @@ int loginState(int socketFd, packet* response, UUID_t* given, const char* userna
     return 0;
 }
 
-int playState(struct gamestate* current, packet response, int socketFd, int compression, const char* versionJSON){
-    //first we need to parse the json
-    char* jsonContents = NULL;
-    long sz = 0;
-    {
-        FILE* json = fopen(versionJSON, "r");
-        fseek(json, 0, SEEK_END);
-        sz = ftell(json);
-        fseek(json, 0, SEEK_SET);
-        jsonContents = calloc(sz + 1, 1);
-        fread(jsonContents, sz, 1, json);
-        fclose(json);
-    }
-    const cJSON* version = cJSON_ParseWithLength(jsonContents, sz);
-    free(jsonContents);
-    if(version == NULL){
-        return -1;
-    }
-    struct gameVersion thisVersion = {};
-    //then we get the entities list (I could do with a hashmap here)
-    thisVersion.entities = cJSON_GetObjectItemCaseSensitive(version, "entities");
-    if(thisVersion.entities == NULL){
-        return -2;
-    }
-    //then we create a lookup table
-    {
-        const cJSON* blocks = cJSON_GetObjectItemCaseSensitive(version, "blocks");
-        thisVersion.blocks.sz = cJSON_GetArraySize(blocks);
-        thisVersion.blocks.palette = calloc(thisVersion.blocks.sz, sizeof(identifier));
-        cJSON* child = blocks->child;
-        for(int i = 0; i < thisVersion.blocks.sz; i++){
-            cJSON* id = cJSON_GetObjectItemCaseSensitive(child, "id");
-            thisVersion.blocks.palette[id->valueint] = child->string;
-            child = child->next;
-        }
-    }
+int playState(struct gamestate* current, packet response, int socketFd, int compression, const struct gameVersion* thisVersion){
     bool play = true;
     int index = 0;
     int offset = 0;
     packet* backlog = NULL;
-    while(play){
+    do{
         //there are some packet types that need immediate answer and separate processing
         switch (response.packetId){
             case BUNDLE_DELIMITER:; //delimiter
@@ -383,7 +351,7 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
                 else{
                     //process the backlog
                     for(int i = 0; i < index; i++){
-                        if(parsePlayPacket(backlog + i, current, &thisVersion) != 0){
+                        if(parsePlayPacket(backlog + i, current, thisVersion) != 0){
                             return -3;
                         }
                     }
@@ -415,7 +383,7 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
             default:;
                 if(backlog == NULL){
                     //process the packet
-                    if(parsePlayPacket(&response, current, &thisVersion) != 0){
+                    if(parsePlayPacket(&response, current, thisVersion) != 0){
                         return -3;
                     }
                 }
@@ -431,7 +399,7 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
             perror("Error while getting a packet");
             return -4;
         }
-    }
-    cJSON_Delete((cJSON*)version);
+    }while(play);
+    free(response.data);
     return 0;
 }

@@ -85,11 +85,14 @@ void freeListElement(listEl* el, bool freeValue){
     free(el);
 }
 
-void freeList(listHead* list, bool freeValues){
+void freeList(listHead* list, void (*freeValFunc)(void* val)){
     listEl* el = list->first;
     while(el != NULL){
         listEl* next = el->next;
-        freeListElement(el, freeValues);
+        if(freeValFunc != NULL){
+            (*freeValFunc)(el->value);
+        }
+        free(el);
         el = next;
     }
     free(list);

@@ -81,9 +81,10 @@ int main(int argc, char** argv){
     }
     printf("Successfully logged in\n");
     struct gamestate current = initGamestate();
-    result = playState(&current, response, sockFd, compression, VERSION_JSON);
-    freeList(current.entityList, true);
-    freeList(current.chunks, false);
+    struct gameVersion* thisVersion = createVersionStruct(VERSION_JSON);
+    result = playState(&current, response, sockFd, compression, thisVersion);
+    freeVersionStruct(thisVersion);
+    freeGamestate(&current);
     if(result < 0){
         perror("Error encountered during play state handling");
         return result;

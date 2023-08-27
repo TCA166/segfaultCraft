@@ -13,6 +13,31 @@
         index = &locIndex; \
     }
 
+static inline int16_t swapShort(int16_t s){
+    return (s << 8) | ((s >> 8) & 0xFF);
+}
+
+static inline uint16_t swapUShort(uint16_t s){
+    return (s << 8) | (s >> 8 );
+}
+
+static inline int32_t swapInt(int32_t i){
+    i = ((i << 8) & 0xFF00FF00) | ((i >> 8) & 0xFF00FF ); 
+    return (i << 16) | ((i >> 16) & 0xFFFF);
+}
+
+static inline int64_t swapLong(int64_t l){
+    l = ((l << 8) & 0xFF00FF00FF00FF00ULL ) | ((l >> 8) & 0x00FF00FF00FF00FFULL );
+    l = ((l << 16) & 0xFFFF0000FFFF0000ULL ) | ((l >> 16) & 0x0000FFFF0000FFFFULL );
+    return (l << 32) | ((l >> 32) & 0xFFFFFFFFULL);
+}
+
+static inline uint64_t swapULong(uint64_t l){
+    l = ((l << 8) & 0xFF00FF00FF00FF00ULL ) | ((l >> 8) & 0x00FF00FF00FF00FFULL );
+    l = ((l << 16) & 0xFFFF0000FFFF0000ULL ) | ((l >> 16) & 0x0000FFFF0000FFFFULL );
+    return (l << 32) | (l >> 32);
+}
+
 //Gets the size of the nbt tag in buffer, assumes the nbt tag is of the given type
 static inline size_t tagSize(const byte* buff, byte type);
 
@@ -137,13 +162,17 @@ int16_t readShort(const byte* buff, int* index){
 
 int16_t readBigEndianShort(const byte* buff, int* index){
     int16_t s = readShort(buff, index);
-    return (s << 8) | ((s >> 8) & 0xFF);
+    return swapShort(s);
+}
+
+uint16_t readBigEndianUShort(const byte* buff, int* index){
+    uint16_t s = readShort(buff, index);
+    return swapUShort(s);
 }
 
 int32_t readBigEndianInt(const byte* buff, int* index){
     int32_t i = readInt(buff, index);
-    i = ((i << 8) & 0xFF00FF00) | ((i >> 8) & 0xFF00FF ); 
-    return (i << 16) | ((i >> 16) & 0xFFFF);
+    return swapInt(i);
 }
 
 UUID_t readUUID(const byte* buff, int* index){
@@ -285,4 +314,37 @@ int64_t readVarLong(const byte* buff, int* index){
         }
     }
     return value;
+}
+
+int64_t readBigEndianLong(const byte* buff, int* offset){
+    int64_t littleEndian = readLong(buff, offset);
+    return swapLong(littleEndian);
+}
+
+float readBigEndianFloat(const byte* buff, int* offset){
+    return (float)readBigEndianInt(buff, offset);
+}
+
+double readBigEndianDouble(const byte* buff, int* offset){
+    return (double)readBigEndianLong(buff, offset);
+}
+
+size_t writeShort(byte* buff, int16_t num){
+    *(int16_t*)buff = num;
+    return sizeof(int16_t);
+}
+
+size_t writeBigEndianShort(byte* buff, int16_t num){
+    int16_t bigEndian = swapShort(num);
+    writeShort(buff, bigEndian);
+}
+
+size_t writeBigEndianUShort(byte* buff, uint16_t num){
+    uint16_t bigEndian = swapUShort(num);
+    writeShort(buff, bigEndian);
+}
+
+uint64_t readBigEndianULong(const byte* buff, int* offset){
+    uint64_t littleEndian = readLong(buff, offset);
+    return swapULong(littleEndian);
 }

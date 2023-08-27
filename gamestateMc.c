@@ -89,16 +89,16 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             e->id = readVarInt(input->data, &offset);
             e->uid = readUUID(input->data, &offset);
             e->type = readVarInt(input->data, &offset);
-            e->x = readDouble(input->data, &offset);
-            e->y = readDouble(input->data, &offset);
-            e->z = readDouble(input->data, &offset);
+            e->x = readBigEndianDouble(input->data, &offset);
+            e->y = readBigEndianDouble(input->data, &offset);
+            e->z = readBigEndianDouble(input->data, &offset);
             e->pitch = readByte(input->data, &offset);
             e->yaw = readByte(input->data, &offset);
             e->headYaw = readByte(input->data, &offset);
             e->data = readVarInt(input->data, &offset);
-            e->velocityX = readShort(input->data, &offset);
-            e->velocityY = readShort(input->data, &offset);
-            e->velocityZ = readShort(input->data, &offset);
+            e->velocityX = readBigEndianShort(input->data, &offset);
+            e->velocityY = readBigEndianShort(input->data, &offset);
+            e->velocityZ = readBigEndianShort(input->data, &offset);
             addElement(output->entityList, (void*)e);
             event(output, spawnEntityHandler, e)
             break;
@@ -107,10 +107,10 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             entity* exp = malloc(sizeof(entity));
             exp->id = readVarInt(input->data, &offset);
             exp->type = getEntityId(version->entities, "minecraft:experience_orb");
-            exp->x = readDouble(input->data, &offset);
-            exp->y = readDouble(input->data, &offset);
-            exp->z = readDouble(input->data, &offset);
-            exp->data = (int32_t)readShort(input->data, &offset);
+            exp->x = readBigEndianDouble(input->data, &offset);
+            exp->y = readBigEndianDouble(input->data, &offset);
+            exp->z = readBigEndianDouble(input->data, &offset);
+            exp->data = (int32_t)readBigEndianShort(input->data, &offset);
             addElement(output->entityList, (void*)exp);
             event(output, spawnEntityHandler, exp)
             break;
@@ -120,9 +120,9 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             player->id = readVarInt(input->data, &offset);
             player->uid = readUUID(input->data, &offset);
             player->type = getEntityId(version->entities, "minecraft:player");
-            player->x = readDouble(input->data, &offset);
-            player->y = readDouble(input->data, &offset);
-            player->z = readDouble(input->data, &offset);
+            player->x = readBigEndianDouble(input->data, &offset);
+            player->y = readBigEndianDouble(input->data, &offset);
+            player->z = readBigEndianDouble(input->data, &offset);
             player->yaw = readByte(input->data, &offset);
             player->pitch = readByte(input->data, &offset);
             addElement(output->entityList, (void*)player);
@@ -170,7 +170,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case SET_BLOCK_DESTROY_STAGE:{
             (void)readVarInt(input->data, &offset);
-            position location = (position)readLong(input->data, &offset);
+            position location = (position)readBigEndianLong(input->data, &offset);
             byte stage = readByte(input->data, &offset);
             block** b = getBlock(output, location);
             if(b != NULL){
@@ -186,7 +186,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case BLOCK_ENTITY_DATA:{
             blockEntity* bEnt = malloc(sizeof(blockEntity));
-            bEnt->location = readLong(input->data, &offset);
+            bEnt->location = readBigEndianLong(input->data, &offset);
             bEnt->type = readVarInt(input->data, &offset);
             size_t sz = nbtSize(input->data + offset, false);
             bEnt->tag = nbt_parse(input->data + offset, sz);
@@ -197,8 +197,8 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case BLOCK_ACTION:{
-            position location = (position)readLong(input->data, &offset);
-            uint16_t animationData = readShort(input->data, &offset);
+            position location = (position)readBigEndianLong(input->data, &offset);
+            uint16_t animationData = readBigEndianShort(input->data, &offset);
             block** b = getBlock(output, location);
             if(b != NULL){
                 (*b)->animationData = animationData;
@@ -207,7 +207,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case BLOCK_UPDATE:{
-            position location = (position)readLong(input->data, &offset);
+            position location = (position)readBigEndianLong(input->data, &offset);
             int32_t blockId = readVarInt(input->data, &offset);
             block** b = getBlock(output, location);
             if(b != NULL){
@@ -227,8 +227,8 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         case CHUNK_BIOMES:{
             int32_t num = readVarInt(input->data, &offset);
             while(num > 0){
-                int32_t chunkX = readInt(input->data, &offset);
-                int32_t chunkZ = readInt(input->data, &offset);
+                int32_t chunkX = readBigEndianInt(input->data, &offset);
+                int32_t chunkZ = readBigEndianInt(input->data, &offset);
                 byteArray chunk = readByteArray(input->data, &offset);
                 int chunkOffset = 0;
                 for(int i = 0; i < 24; i++){
@@ -289,8 +289,8 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case SET_CONTAINER_PROPERTY:{
             byte windowId = readByte(input->data, &offset);
-            int16_t property = readShort(input->data, &offset);
-            int16_t value = readShort(input->data, &offset);
+            int16_t property = readBigEndianShort(input->data, &offset);
+            int16_t value = readBigEndianShort(input->data, &offset);
             if(output->openContainer != NULL && output->openContainer->id == windowId){
                 output->openContainer->flags[property] = value;
                 event(output, containerHandler, output->openContainer);
@@ -300,7 +300,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         case SET_CONTAINER_SLOT:{
             byte windowId = readByte(input->data, &offset);
             (void)readVarInt(input->data, &offset);
-            int16_t slotId = readShort(input->data, &offset);
+            int16_t slotId = readBigEndianShort(input->data, &offset);
             slot data = readSlot(input->data, &offset);
             if(slotId == 0){
                 output->player.inventory.slots[slotId] = data;
@@ -332,9 +332,9 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             bool hasPosition = readBool(input->data, &offset);
             double sourceX, sourceY, sourceZ; //do not read unless hasPosition == true
             if(hasPosition){
-                sourceX = readDouble(input->data, &offset);
-                sourceY = readDouble(input->data, &offset);
-                sourceZ = readDouble(input->data, &offset);
+                sourceX = readBigEndianDouble(input->data, &offset);
+                sourceY = readBigEndianDouble(input->data, &offset);
+                sourceZ = readBigEndianDouble(input->data, &offset);
             }
             event(output, damageHandler, entityId, sourceType, sourceCause, sourceDirect, hasPosition, sourceX, sourceY, sourceZ)
             break;
@@ -348,7 +348,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case ENTITY_EVENT:{
-            int32_t id = readInt(input->data, &offset);
+            int32_t id = readBigEndianInt(input->data, &offset);
             listEl* el = output->entityList->first;
             while(el != NULL){
                 entity* e = (entity*)el->value;
@@ -361,10 +361,10 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case EXPLOSION:{
-            double X = readDouble(input->data, &offset);
-            double Y = readDouble(input->data, &offset);
-            double Z = readDouble(input->data, &offset);
-            float strength = readFloat(input->data, &offset);
+            double X = readBigEndianDouble(input->data, &offset);
+            double Y = readBigEndianDouble(input->data, &offset);
+            double Z = readBigEndianDouble(input->data, &offset);
+            float strength = readBigEndianFloat(input->data, &offset);
             //delete the blocks
             int32_t count = readVarInt(input->data, &offset);
             while(count > 0){
@@ -378,15 +378,15 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 }
                 count--;
             }
-            output->player.X += readFloat(input->data, &offset);
-            output->player.Y += readFloat(input->data, &offset);
-            output->player.Z += readFloat(input->data, &offset);
+            output->player.X += readBigEndianFloat(input->data, &offset);
+            output->player.Y += readBigEndianFloat(input->data, &offset);
+            output->player.Z += readBigEndianFloat(input->data, &offset);
             event(output, explosionHandler, X, Y, Z, strength)
             break;
         }
         case UNLOAD_CHUNK:{
-            int32_t X = readInt(input->data, &offset);
-            int32_t Z = readInt(input->data, &offset);
+            int32_t X = readBigEndianInt(input->data, &offset);
+            int32_t Z = readBigEndianInt(input->data, &offset);
             listEl* el = output->chunks->first;
             while(el != NULL){
                 if(((chunk*)el->value)->x == X && ((chunk*)el->value)->z == Z){
@@ -398,7 +398,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case GAME_EVENT:{
             byte eventId = readByte(input->data, &offset);
-            float value = readFloat(input->data, &offset);
+            float value = readBigEndianFloat(input->data, &offset);
             if(output->eventHandlers.generic[eventId] != NULL){
                 event(output, generic[eventId], value)
             }
@@ -407,7 +407,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         case OPEN_HORSE_SCREEN:{
             byte windowId = readByte(input->data, &offset);
             int32_t slotCount = readVarInt(input->data, &offset);
-            int32_t eid = readInt(input->data, &offset);
+            int32_t eid = readBigEndianInt(input->data, &offset);
             entity* horse = getEntity(output->entityList, eid);
             if(horse == NULL){
                 break;
@@ -432,15 +432,15 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case HURT_ANIMATION:{
             int32_t eid = readVarInt(input->data, &offset);
-            float yaw = readFloat(input->data, &offset);
+            float yaw = readBigEndianFloat(input->data, &offset);
             event(output, hurtAnimationHandler, getEntity(output->entityList, eid), yaw)
             break;
         }
         case INITIALIZE_WORLD_BORDER:{
-            output->worldBorder.X = readDouble(input->data, &offset);
-            output->worldBorder.Z = readDouble(input->data, &offset);
-            double oldDiameter = readDouble(input->data, &offset);
-            output->worldBorder.diameter = readDouble(input->data, &offset);
+            output->worldBorder.X = readBigEndianDouble(input->data, &offset);
+            output->worldBorder.Z = readBigEndianDouble(input->data, &offset);
+            double oldDiameter = readBigEndianDouble(input->data, &offset);
+            output->worldBorder.diameter = readBigEndianDouble(input->data, &offset);
             output->worldBorder.speed = readVarLong(input->data, &offset);
             output->worldBorder.portalBoundary = readVarInt(input->data, &offset);
             output->worldBorder.warning = readVarInt(input->data, &offset);
@@ -450,9 +450,8 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case CHUNK_DATA_AND_UPDATE_LIGHT:{
             chunk* newChunk = malloc(sizeof(chunk));
-            //FIXME: the value read here is garbage, why?
-            newChunk->x = readInt(input->data, &offset);
-            newChunk->z = readInt(input->data, &offset);
+            newChunk->x = readBigEndianInt(input->data, &offset);
+            newChunk->z = readBigEndianInt(input->data, &offset);
             //we skip the nbt tag
             size_t sz = nbtSize(input->data + offset, false);
             //nbt_node* heightmaps = nbt_parse(input->data + offset, sz);
@@ -466,7 +465,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 }
                 struct section s = {};
                 s.y = 24 - 4;
-                s.nonAir = readShort(input->data, &offset);
+                s.nonAir = readBigEndianShort(input->data, &offset);
                 byte bitsPerEntry = readByte(input->data, &offset);
                 if(bitsPerEntry == 0){ //the palette contains a single value and the dataArray is empty
                     int32_t globalId = readVarInt(input->data, &offset);
@@ -497,6 +496,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                         paletteLength = readVarInt(input->data, &offset);
                         localPalette = calloc(paletteLength, sizeof(uint32_t));
                         for(int n = 0; n < paletteLength; n++){
+                            //FIXME: either the documentation is wrong, or the data is being sent incorrectly
                             uint32_t element = readVarInt(input->data, &offset);
                             //sanity check 1
                             if(element > version->blocks.sz){
@@ -512,7 +512,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     int32_t numLongs = readVarInt(input->data, &offset); //the number of longs the MAIN array has been split into
                     uint32_t* states = calloc(numPerLong * numLongs, sizeof(uint32_t)); //the states
                     for(int l = 0; l < numLongs; l++){//foreach Long
-                        uint64_t ourLong = readLong(input->data, &offset);
+                        uint64_t ourLong = readBigEndianULong(input->data, &offset);
                         for(uint8_t b = 0; b < numPerLong; b++){ //foreach element in long
                             if(index >= 4096){
                                 break;
@@ -521,7 +521,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                             uint32_t state = (uint32_t)((createLongMask(bits, bitsPerEntry) & ourLong) >> bits);
                             //sanity check 2
                             if((localPalette != NULL && state > paletteLength) || state > version->blocks.sz){
-                                errno = E2BIG;
+                                errno = E2BIG; //FIXME: this also happens. No clue why. The mask is generated fine, the bitshift is fine, the and works fine, it's the int64 that is wrong
                                 return -2;
                             }
                             states[index] = state;
@@ -547,6 +547,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                         newBlock->z = z;
                         s.blocks[x][y][z] = newBlock;
                     }
+                    free(localPalette);
                     //TODO: handle biomes
                 }
                 newChunk->sections[i] = s;
@@ -557,7 +558,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 byte packedXZ = readByte(input->data, &offset);
                 uint8_t secX = packedXZ >> 4;
                 uint8_t secZ = packedXZ & 15;
-                int16_t Y = readShort(input->data, &offset);
+                int16_t Y = readBigEndianShort(input->data, &offset);
                 int16_t sectionId = yToSection(Y);
                 bEnt->location = toPosition(secX + (newChunk->x * 16), Y, secZ + (newChunk->z * 16));
                 bEnt->type = readVarInt(input->data, &offset);
@@ -573,21 +574,21 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case WORLD_EVENT:{
             //Well there's no point in trying to represent sounds in the gamestate 
-            event(output, worldEvent, readInt(input->data, &offset), readLong(input->data, &offset), readInt(input->data, &offset), readBool(input->data, &offset));
+            event(output, worldEvent, readBigEndianInt(input->data, &offset), readBigEndianLong(input->data, &offset), readBigEndianInt(input->data, &offset), readBool(input->data, &offset));
             break;
         }
         case PARTICLE_2:{
             struct particle new;
             new.id = readVarInt(input->data, &offset);
             new.longDistance = readBool(input->data, &offset);
-            new.x = readDouble(input->data, &offset);
-            new.y = readDouble(input->data, &offset);
-            new.z = readDouble(input->data, &offset);
-            new.offsetX = readFloat(input->data, &offset);
-            new.offsetY = readFloat(input->data, &offset);
-            new.offsetZ = readFloat(input->data, &offset);
-            new.maxSpeed = readFloat(input->data, &offset);
-            new.count = readInt(input->data, &offset);
+            new.x = readBigEndianDouble(input->data, &offset);
+            new.y = readBigEndianDouble(input->data, &offset);
+            new.z = readBigEndianDouble(input->data, &offset);
+            new.offsetX = readBigEndianFloat(input->data, &offset);
+            new.offsetY = readBigEndianFloat(input->data, &offset);
+            new.offsetZ = readBigEndianFloat(input->data, &offset);
+            new.maxSpeed = readBigEndianFloat(input->data, &offset);
+            new.count = readBigEndianInt(input->data, &offset);
             new.data = input->data + offset;
             event(output, particleSpawn, &new);
             break;
@@ -598,7 +599,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case LOGIN_PLAY:{
             output->loginPlay = true;
-            output->player.entityId = readInt(input->data, &offset);
+            output->player.entityId = readBigEndianInt(input->data, &offset);
             output->hardcore = readBool(input->data, &offset);
             output->player.gamemode = readByte(input->data, &offset);
             output->player.previousGamemode = readByte(input->data, &offset);
@@ -620,7 +621,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             }
             output->dimensionType = readString(input->data, &offset);         
             output->dimensionName = readString(input->data, &offset);   
-            output->hashedSeed = readLong(input->data, &offset);
+            output->hashedSeed = readBigEndianLong(input->data, &offset);
             output->maxPlayers = readVarInt(input->data, &offset);
             output->viewDistance = readVarInt(input->data, &offset);
             output->simulationDistance = readVarInt(input->data, &offset);
@@ -631,7 +632,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             output->deathLocation = readBool(input->data, &offset);
             if(output->deathLocation){
                 output->deathDimension = readString(input->data, &offset);
-                output->death = readLong(input->data, &offset);
+                output->death = readBigEndianLong(input->data, &offset);
             }
             //invalid read here of size 1. It seems we read after the packet. Idk why 
             output->portalCooldown = readVarInt(input->data, &offset);
@@ -639,8 +640,8 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case PLAYER_ABILITIES:{
             output->player.flags = readByte(input->data, &offset);
-            output->player.flyingSpeed = readFloat(input->data, &offset);
-            output->player.fovModifier = readFloat(input->data, &offset);
+            output->player.flyingSpeed = readBigEndianFloat(input->data, &offset);
+            output->player.fovModifier = readBigEndianFloat(input->data, &offset);
             break;
         }
         case PLAYER_INFO_UPDATE:{
@@ -649,6 +650,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             output->playerInfo.number = readVarInt(input->data, &offset);
             for(int i = 0; i < output->playerInfo.number; i++){
                 struct genericPlayer* new = malloc(sizeof(struct genericPlayer));
+                memset(new, 0, sizeof(struct genericPlayer));
                 new->id = readUUID(input->data, &offset);
                 if(actions & INFO_ADD_PLAYER){
                     new->name = readString(input->data, &offset);
@@ -664,13 +666,14 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                         else{
                             prop->signature = NULL;
                         }
+                        addElement(new->properties, prop);
                     }
                 }
                 if(actions & INFO_INIT_CHAT){
                     new->signatureData.present = readBool(input->data, &offset);
                     if(new->signatureData.present){
                         new->signatureData.chatSessionId = readUUID(input->data, &offset);
-                        new->signatureData.keyExpiry = readLong(input->data, &offset);
+                        new->signatureData.keyExpiry = readBigEndianLong(input->data, &offset);
                         new->signatureData.encodedPublicKey = readByteArray(input->data, &offset);
                         new->signatureData.publicKeySignature = readByteArray(input->data, &offset);
                     }
@@ -734,8 +737,8 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case SET_DEFAULT_SPAWN_POSITION:{
-            output->defaultSpawnPosition.location = readLong(input->data, &offset);
-            output->defaultSpawnPosition.angle = readFloat(input->data, &offset);
+            output->defaultSpawnPosition.location = readBigEndianLong(input->data, &offset);
+            output->defaultSpawnPosition.angle = readBigEndianFloat(input->data, &offset);
             break;
         }
         case SET_ENTITY_METADATA:{
@@ -754,8 +757,8 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;            
         }
         case UPDATE_TIME:{
-            output->worldAge = readLong(input->data, &offset);
-            output->timeOfDay = readLong(input->data, &offset);
+            output->worldAge = readBigEndianLong(input->data, &offset);
+            output->timeOfDay = readBigEndianLong(input->data, &offset);
             break;
         }
         case SYSTEM_CHAT_MESSAGE:{
@@ -797,6 +800,35 @@ struct gamestate initGamestate(){
     g.blockEntities = initList();
     g.playerInfo.players = initList();
     return g;
+}
+
+void freeGamestate(struct gamestate* g){
+    freeList(g->blockEntities, (void(*)(void*))freeBlockEntity);
+    freeList(g->entityList, free);
+    freeList(g->chunks, (void(*)(void*))freeChunk);
+    free(g->deathDimension);
+    free(g->dimensionName);
+    for(int i = 0; i < g->dimensions.len; i++){
+        free(g->dimensions.arr[i]);
+    }
+    free(g->dimensions.arr);
+    free(g->dimensionType);
+    for(int i = 0; i < g->featureFlags.count; i++){
+        free(g->featureFlags.flags[i]);
+    }
+    free(g->featureFlags.flags);
+    if(g->openContainer != NULL){
+        free(g->openContainer->slots);
+        free(g->openContainer->title);
+    }
+    free(g->openContainer);
+    free(g->pendingChanges.array);
+    free(g->player.inventory.slots);
+    free(g->player.inventory.title);
+    freeList(g->playerInfo.players, (void(*)(void*))freeGenericPlayer);
+    nbt_free(g->registryCodec);
+    free(g->serverData.icon.bytes);
+    free(g->serverData.MOTD);
 }
 
 static int getEntityId(const cJSON* entities, const char* name){
@@ -856,11 +888,11 @@ int handleSynchronizePlayerPosition(packet* input, struct gamestate* output, int
         errno = EINVAL;
         return -1;
     }
-    double X = readDouble(input->data, offset);
-    double Y = readDouble(input->data, offset);
-    double Z = readDouble(input->data, offset);
-    float yaw = readFloat(input->data, offset);
-    float pitch = readFloat(input->data, offset);
+    double X = readBigEndianDouble(input->data, offset);
+    double Y = readBigEndianDouble(input->data, offset);
+    double Z = readBigEndianDouble(input->data, offset);
+    float yaw = readBigEndianFloat(input->data, offset);
+    float pitch = readBigEndianFloat(input->data, offset);
     byte flags = readByte(input->data, offset);
     if(flags & FLAGS_X){
         output->player.X += X;
@@ -933,7 +965,7 @@ static struct entityMetadata* parseEntityMetadata(byte* input, int* offset){
             break;
         }
         case FLOAT:{
-            new->value.FLOAT = readFloat(input, offset);
+            new->value.FLOAT = readBigEndianFloat(input, offset);
             break;
         }
         case STRING:{
@@ -964,18 +996,18 @@ static struct entityMetadata* parseEntityMetadata(byte* input, int* offset){
         }
         case ROTATION:{
             for(int i = 0; i < 3; i++){
-                new->value.ROTATION[i] = readFloat(input, offset);
+                new->value.ROTATION[i] = readBigEndianFloat(input, offset);
             }
             break;
         }
         case POSITION:{
-            new->value.POSITION = readLong(input, offset);
+            new->value.POSITION = readBigEndianLong(input, offset);
             break;
         }
         case OPT_POSITION:{
             new->value.OPT_POSITION.present = readBool(input, offset);
             if(new->value.OPT_POSITION.present){
-                new->value.OPT_POSITION.value = readLong(input, offset);
+                new->value.OPT_POSITION.value = readBigEndianLong(input, offset);
             }
             break;
         }
@@ -1032,7 +1064,7 @@ static struct entityMetadata* parseEntityMetadata(byte* input, int* offset){
             new->value.OPT_GLOBAL_POS.present = readBool(input, offset);
             if(new->value.OPT_GLOBAL_POS.present){
                 new->value.OPT_GLOBAL_POS.dimension = readString(input, offset);
-                new->value.OPT_GLOBAL_POS.pos = readLong(input, offset);
+                new->value.OPT_GLOBAL_POS.pos = readBigEndianLong(input, offset);
             }
             break;
         }
@@ -1046,16 +1078,81 @@ static struct entityMetadata* parseEntityMetadata(byte* input, int* offset){
         }
         case VECTOR3:{
             for(int i = 0; i < 3; i++){
-                new->value.VECTOR3[i] = readFloat(input, offset);
+                new->value.VECTOR3[i] = readBigEndianFloat(input, offset);
             }
             break;
         }
         case QUATERNION:{
             for(int i = 0; i < 4; i++){
-                new->value.QUATERNION[i] = readFloat(input, offset);
+                new->value.QUATERNION[i] = readBigEndianFloat(input, offset);
             }
             break;
         }
     }
     return new;
+}
+
+struct gameVersion* createVersionStruct(const char* versionJSON){
+    //first we need to parse the json
+    char* jsonContents = NULL;
+    long sz = 0;
+    {
+        FILE* json = fopen(versionJSON, "r");
+        fseek(json, 0, SEEK_END);
+        sz = ftell(json);
+        fseek(json, 0, SEEK_SET);
+        jsonContents = calloc(sz + 1, 1);
+        fread(jsonContents, sz, 1, json);
+        fclose(json);
+    }
+    const cJSON* version = cJSON_ParseWithLength(jsonContents, sz);
+    free(jsonContents);
+    if(version == NULL){
+        return NULL;
+    }
+    struct gameVersion* thisVersion = malloc(sizeof(struct gameVersion));
+    //then we get the entities list (I could do with a hashmap here)
+    thisVersion->entities = cJSON_GetObjectItemCaseSensitive(version, "entities");
+    if(thisVersion->entities == NULL){
+        return NULL;
+    }
+    //then we create a lookup table
+    {
+        const cJSON* blocks = cJSON_GetObjectItemCaseSensitive(version, "blocks");
+        thisVersion->blocks.sz = cJSON_GetArraySize(blocks);
+        thisVersion->blocks.palette = calloc(thisVersion->blocks.sz, sizeof(identifier));
+        cJSON* child = blocks->child;
+        for(int i = 0; i < thisVersion->blocks.sz; i++){
+            cJSON* id = cJSON_GetObjectItemCaseSensitive(child, "id");
+            thisVersion->blocks.palette[id->valueint] = child->string;
+            child = child->next;
+        }
+    }
+    thisVersion->json = version;
+    return thisVersion;
+}
+
+void freeVersionStruct(struct gameVersion* version){
+    cJSON_Delete((cJSON*)version->json);
+    free(version->blocks.palette);
+    free(version);
+}
+
+void freeBlockEntity(blockEntity* e){
+    nbt_free(e->tag);
+    free(e);
+}
+
+void freeProperty(struct property* p){
+    free(p->name);
+    free(p->signature);
+    free(p->value);
+    free(p);
+}
+
+void freeGenericPlayer(struct genericPlayer* p){
+    free(p->displayName);
+    free(p->name);
+    freeList(p->properties, (void(*)(void*))freeProperty);
+    free(p);
 }
