@@ -33,7 +33,7 @@ int main(int argc, char** argv){
     }
     char* host = argv[1];
     int16_t port = (int16_t)atoi(argv[2]);
-    short protocol = (short)atoi(argv[3]);
+    int32_t protocol = (int32_t)atoi(argv[3]);
     //Our internet socket
     int sockFd = socket(AF_INET, SOCK_STREAM, 0);
     if(sockFd < 0){
@@ -81,7 +81,7 @@ int main(int argc, char** argv){
     }
     printf("Successfully logged in\n");
     struct gamestate current = initGamestate();
-    struct gameVersion* thisVersion = createVersionStruct(VERSION_JSON);
+    struct gameVersion* thisVersion = createVersionStruct(VERSION_JSON, protocol);
     result = playState(&current, response, sockFd, compression, thisVersion);
     freeVersionStruct(thisVersion);
     freeGamestate(&current);

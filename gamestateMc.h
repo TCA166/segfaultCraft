@@ -183,6 +183,7 @@ typedef struct block{
     double y;
     double z;
     identifier type;
+    int32_t state;
     byte stage;
     uint16_t animationData;
     blockEntity* entity;
@@ -324,9 +325,11 @@ struct gamestate{
 
 //Struct that contains all necessary info that determine what game features are present in our game version
 struct gameVersion{
+    uint32_t protocol;
     const cJSON* json;
     const cJSON* entities;
-    struct palette blocks;
+    struct palette blockTypes;
+    struct palette blockStates;
 };
 
 /*!
@@ -362,7 +365,7 @@ int handleSynchronizePlayerPosition(packet* input, struct gamestate* output, int
 /*!
  @brief Creates a version struct
 */
-struct gameVersion* createVersionStruct(const char* versionJSON);
+struct gameVersion* createVersionStruct(const char* versionJSON, uint32_t protocol);
 
 /*!
  @brief Frees a previously created version struct

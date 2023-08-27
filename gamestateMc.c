@@ -28,11 +28,11 @@ static block** getBlock(struct gamestate* current, position pos);
 
 /*!
  @brief Gets the entity with the given eid from the linked list
- @param entities the linked list containing the entity
+ @param current the gamestate from which we want to get the entity
  @param eid the id of the entity
  @return NULL or a reference to the entity
 */
-entity* getEntity(listHead* entities, int32_t eid);
+static entity* getEntity(struct gamestate* current, int32_t eid);
 
 /*!
  @brief Parses raw bytes into an entity metadata object
@@ -79,6 +79,8 @@ static void unloadChunk(listEl* el);
 #define INFO_UPDATE 0x08
 #define INFO_PING 0x10
 #define INFO_DISPLAY 0x20
+
+#define STATES_NUM 4096
 
 int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVersion* version){
     const int paletteThreshold = 9;
@@ -132,7 +134,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         case ENTITY_ANIMATION:{
             int32_t eid = readVarInt(input->data, &offset);
             byte animation = readByte(input->data, &offset);
-            entity* e = getEntity(output->entityList, eid);
+            entity* e = getEntity(output, eid);
             if(e != NULL){
                 e->animation = animation;
                 event(output, animationEntityHandler, e)
@@ -211,7 +213,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             int32_t blockId = readVarInt(input->data, &offset);
             block** b = getBlock(output, location);
             if(b != NULL){
-                (*b)->type = version->blocks.palette[blockId];
+                (*b)->type = version->blockTypes.palette[blockId];
             }
             break;
         }
@@ -408,7 +410,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             byte windowId = readByte(input->data, &offset);
             int32_t slotCount = readVarInt(input->data, &offset);
             int32_t eid = readBigEndianInt(input->data, &offset);
-            entity* horse = getEntity(output->entityList, eid);
+            entity* horse = getEntity(output, eid);
             if(horse == NULL){
                 break;
             }
@@ -433,7 +435,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         case HURT_ANIMATION:{
             int32_t eid = readVarInt(input->data, &offset);
             float yaw = readBigEndianFloat(input->data, &offset);
-            event(output, hurtAnimationHandler, getEntity(output->entityList, eid), yaw)
+            event(output, hurtAnimationHandler, getEntity(output, eid), yaw)
             break;
         }
         case INITIALIZE_WORLD_BORDER:{
@@ -464,7 +466,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     break;
                 }
                 struct section s = {};
-                s.y = 24 - 4;
+                s.y = i - 4;
                 s.nonAir = readBigEndianShort(input->data, &offset);
                 byte bitsPerEntry = readByte(input->data, &offset);
                 if(bitsPerEntry == 0){ //the palette contains a single value and the dataArray is empty
@@ -473,10 +475,11 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     forBlocks(){
                         s.blocks[x][y][z] = malloc(sizeof(block));
                         memset(s.blocks[x][y][z], 0, sizeof(block));
-                        s.blocks[x][y][z]->type = version->blocks.palette[globalId];
+                        s.blocks[x][y][z]->type = version->blockStates.palette[globalId];
                         s.blocks[x][y][z]->x = x;
                         s.blocks[x][y][z]->y = y;
                         s.blocks[x][y][z]->z = z;
+                        s.blocks[x][y][z]->state = globalId;
                     }
                     (void)readVarInt(input->data, &offset); //we need to offset by the data array length field
                 }
@@ -485,7 +488,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     size_t paletteLength = 0;
                     if(bitsPerEntry >= paletteThreshold){
                         //the ceilf(log2f(size of palette)) is the size of elements in the array
-                        bitsPerEntry = (byte)ceilf(log2f((float)version->blocks.sz));
+                        bitsPerEntry = (byte)ceilf(log2f((float)version->blockTypes.sz));
                         //and the local palette is the global palette
                     }
                     else{
@@ -496,11 +499,11 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                         paletteLength = readVarInt(input->data, &offset);
                         localPalette = calloc(paletteLength, sizeof(uint32_t));
                         for(int n = 0; n < paletteLength; n++){
-                            //FIXME: either the documentation is wrong, or the data is being sent incorrectly
+                            //this is a state index
                             uint32_t element = readVarInt(input->data, &offset);
                             //sanity check 1
-                            if(element > version->blocks.sz){
-                                errno = E2BIG;
+                            if(element > version->blockStates.sz){
+                                errno = E2BIG; //FIXME: encountered multiple times weird 8 bit long varints
                                 return -1;
                             }
                             localPalette[n] = element;
@@ -510,18 +513,18 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     uint16_t numPerLong = (uint16_t)(64/bitsPerEntry); //number of elements of the array in a single long
                     uint16_t index = 0; //the current MAIN array index
                     int32_t numLongs = readVarInt(input->data, &offset); //the number of longs the MAIN array has been split into
-                    uint32_t* states = calloc(numPerLong * numLongs, sizeof(uint32_t)); //the states
+                    uint32_t states[STATES_NUM] = {}; //the states
                     for(int l = 0; l < numLongs; l++){//foreach Long
                         uint64_t ourLong = readBigEndianULong(input->data, &offset);
                         for(uint8_t b = 0; b < numPerLong; b++){ //foreach element in long
-                            if(index >= 4096){
+                            if(index >= STATES_NUM){
                                 break;
                             }
                             uint16_t bits = b * bitsPerEntry;
                             uint32_t state = (uint32_t)((createLongMask(bits, bitsPerEntry) & ourLong) >> bits);
                             //sanity check 2
-                            if((localPalette != NULL && state > paletteLength) || state > version->blocks.sz){
-                                errno = E2BIG; //FIXME: this also happens. No clue why. The mask is generated fine, the bitshift is fine, the and works fine, it's the int64 that is wrong
+                            if((localPalette != NULL && state > paletteLength) || state > version->blockStates.sz){
+                                errno = E2BIG;
                                 return -2;
                             }
                             states[index] = state;
@@ -536,15 +539,16 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                         newBlock->animationData = 0;
                         newBlock->stage = 0;
                         //get the state
-                        int id = states[statesFormula(x, y, z)];
+                        uint32_t id = states[statesFormula(x, y, z)];
                         if(localPalette != NULL){ //apply the localPalette if necessary
                             id = localPalette[id];
                         }
                         //and then apply the global palette and boom type gotten
-                        newBlock->type = version->blocks.palette[id];
+                        newBlock->type = version->blockStates.palette[id];
                         newBlock->x = x;
                         newBlock->y = y;
                         newBlock->z = z;
+                        newBlock->state = id;
                         s.blocks[x][y][z] = newBlock;
                     }
                     free(localPalette);
@@ -743,7 +747,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case SET_ENTITY_METADATA:{
             int32_t eid = readVarInt(input->data, &offset);
-            entity* our = getEntity(output->entityList, eid);
+            entity* our = getEntity(output, eid);
             if(our != NULL){
                 while(true){
                     byte index = readByte(input->data, &offset);
@@ -927,8 +931,8 @@ int handleSynchronizePlayerPosition(packet* input, struct gamestate* output, int
     return 0;
 }
 
-entity* getEntity(listHead* entities, int32_t eid){
-    listEl* el = entities->first;
+static entity* getEntity(struct gamestate* current, int32_t eid){
+    listEl* el = current->entityList->first;
     while(el != NULL){
         entity* e = (entity*)el->value;
         if(e != NULL && e->id == eid){
@@ -1092,7 +1096,7 @@ static struct entityMetadata* parseEntityMetadata(byte* input, int* offset){
     return new;
 }
 
-struct gameVersion* createVersionStruct(const char* versionJSON){
+struct gameVersion* createVersionStruct(const char* versionJSON, uint32_t protocol){
     //first we need to parse the json
     char* jsonContents = NULL;
     long sz = 0;
@@ -1118,23 +1122,39 @@ struct gameVersion* createVersionStruct(const char* versionJSON){
     }
     //then we create a lookup table
     {
+        //first get the blocks part of the json
         const cJSON* blocks = cJSON_GetObjectItemCaseSensitive(version, "blocks");
-        thisVersion->blocks.sz = cJSON_GetArraySize(blocks);
-        thisVersion->blocks.palette = calloc(thisVersion->blocks.sz, sizeof(identifier));
+        //then initialize the blockTypes array for writing
+        thisVersion->blockTypes.sz = cJSON_GetArraySize(blocks);
+        thisVersion->blockTypes.palette = calloc(thisVersion->blockTypes.sz, sizeof(identifier));
+        //then blockStates
+        cJSON* lastStates = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(blocks, thisVersion->blockTypes.sz - 1), "states");
+        cJSON* lastState = cJSON_GetArrayItem(lastStates, cJSON_GetArraySize(lastStates) - 1);
+        thisVersion->blockStates.sz = atoi(lastState->string);
+        thisVersion->blockStates.palette = calloc(thisVersion->blockStates.sz, sizeof(identifier));
         cJSON* child = blocks->child;
-        for(int i = 0; i < thisVersion->blocks.sz; i++){
+        for(int i = 0; i < thisVersion->blockTypes.sz; i++){
             cJSON* id = cJSON_GetObjectItemCaseSensitive(child, "id");
-            thisVersion->blocks.palette[id->valueint] = child->string;
+            thisVersion->blockTypes.palette[id->valueint] = child->string;
+            cJSON* states = cJSON_GetObjectItemCaseSensitive(child, "states");
+            size_t statesSz = cJSON_GetArraySize(states);
+            cJSON* state = states->child;
+            for(int s = 0; s < statesSz; s++){
+                thisVersion->blockStates.palette[atoi(state->string)] = child->string;
+            }
             child = child->next;
         }
+        //thisVersion->blockStates.sz = lastStates.;
     }
     thisVersion->json = version;
+    thisVersion->protocol = protocol;
     return thisVersion;
 }
 
 void freeVersionStruct(struct gameVersion* version){
     cJSON_Delete((cJSON*)version->json);
-    free(version->blocks.palette);
+    free(version->blockTypes.palette);
+    free(version->blockStates.palette);
     free(version);
 }
 

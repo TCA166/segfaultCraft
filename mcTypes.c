@@ -56,7 +56,7 @@ size_t writeVarInt(byte* buff, int32_t value){
 
 int32_t readVarInt(const byte* buff, int* index){
     int32_t value = 0;
-    int position = 0;
+    int position = 0; //position in bytes
     getIndex(index)
     while(true){
         byte currentByte = buff[*index];
