@@ -131,8 +131,7 @@ byteArray readSocket(int socketFd){
     int position = 0;
     while(true){
         byte curByte = 0;
-        int res = read(socketFd, &curByte, 1);
-        if(res < 1){
+        if(read(socketFd, &curByte, 1) < 1){
             return result;
         }
         size |= (curByte & SEGMENT_BITS) << position;

@@ -450,10 +450,12 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case CHUNK_DATA_AND_UPDATE_LIGHT:{
             chunk* newChunk = malloc(sizeof(chunk));
+            //FIXME: the value read here is garbage, why?
             newChunk->x = readInt(input->data, &offset);
             newChunk->z = readInt(input->data, &offset);
             //we skip the nbt tag
             size_t sz = nbtSize(input->data + offset, false);
+            //nbt_node* heightmaps = nbt_parse(input->data + offset, sz);
             offset += sz;
             //here instead of needlessly slowing down the execution I forego using readByteArray
             size_t byteArrayLimit = readVarInt(input->data, &offset) + offset;
@@ -463,6 +465,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     break;
                 }
                 struct section s = {};
+                s.y = 24 - 4;
                 s.nonAir = readShort(input->data, &offset);
                 byte bitsPerEntry = readByte(input->data, &offset);
                 if(bitsPerEntry == 0){ //the palette contains a single value and the dataArray is empty
@@ -508,9 +511,9 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     uint16_t index = 0; //the current MAIN array index
                     int32_t numLongs = readVarInt(input->data, &offset); //the number of longs the MAIN array has been split into
                     uint32_t* states = calloc(numPerLong * numLongs, sizeof(uint32_t)); //the states
-                    for(int l = 0; l < numLongs; l++){
+                    for(int l = 0; l < numLongs; l++){//foreach Long
                         uint64_t ourLong = readLong(input->data, &offset);
-                        for(uint8_t b = 0; b < numPerLong; b++){
+                        for(uint8_t b = 0; b < numPerLong; b++){ //foreach element in long
                             if(index >= 4096){
                                 break;
                             }
@@ -518,7 +521,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                             uint32_t state = (uint32_t)((createLongMask(bits, bitsPerEntry) & ourLong) >> bits);
                             //sanity check 2
                             if((localPalette != NULL && state > paletteLength) || state > version->blocks.sz){
-                                errno = E2BIG; //FIXME: this sometimes can happen
+                                errno = E2BIG;
                                 return -2;
                             }
                             states[index] = state;
@@ -533,7 +536,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                         newBlock->animationData = 0;
                         newBlock->stage = 0;
                         //get the state
-                        int id = states[statesFormula(x, y, z)]; //FIXME:Invalid values here
+                        int id = states[statesFormula(x, y, z)];
                         if(localPalette != NULL){ //apply the localPalette if necessary
                             id = localPalette[id];
                         }
