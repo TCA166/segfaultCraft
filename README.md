@@ -22,6 +22,10 @@ Aside from these three there are also minor libraries for structures like lists.
 
 For the parsing of JSON files I utilize [cJSON](https://github.com/DaveGamble/cJSON) and for parsing of NBT files I utilize [cNBT](https://github.com/chmod222/cNBT). Huge thanks for all the work the respective teams have put in. For the sake of convenience I chose not to include these entire repositories as submodules and include only the parts of the source code I need.
 
-## Game data
+## Client
 
-The client requires a Minecraft version specific json file to properly interact with the server. You can get this file here [pixlyzer-data](https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/tree/master/version)
+The client is a small test bed/implementation example for the library. If you want to look at just how much abstraction we are talking about here, or how the api looks like you can find it [here](./client.c).
+
+### Game data
+
+The client requires a Minecraft version specific json file to properly interact with the server. You can get such a file here [pixlyzer-data](https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/tree/master/version)
