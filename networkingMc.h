@@ -107,7 +107,7 @@ int loginState(int socketFd, packet* response, UUID_t* given, const char* userna
  @param socketFd the file descriptor of the socket used for communication with the server
  @param compression the established compression level
  @param thisVersion a previously created version struct
- @return the result of the process. Negative values indicate errors. Positive graceful disconnects
+ @return the result of the process. Negative values indicate errors. 0 indicates server ordered disconnect
 */
 int playState(struct gamestate* current, packet response, int socketFd, int compression, const struct gameVersion* thisVersion);
 

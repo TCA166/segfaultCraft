@@ -9,12 +9,11 @@
 #include "cJSON/cJSON.h"
 
 /*!
- @brief Gets the id of the entity type with the given name from the parsed JSON
- @param entities a parsed JSON object containing definitions all the different Minecraft entity types
+ @brief Gets the id of the entity with the given name
+ @param version the current version struct
  @param name the name of the entity
- @return the id
 */
-static int getEntityId(const cJSON* entities, const char* name);
+static int getEntityId(const struct gameVersion* version, const char* name);
 
 /*!
  @brief Gets the double pointer to the block with the given position within the gamestate
@@ -46,6 +45,34 @@ static struct entityMetadata* parseEntityMetadata(byte* input, int* offset);
 */
 static void unloadChunk(listEl* el);
 
+/*!
+ @brief Little convenience function that combines malloc and memcpy that effectively does a shallow copy
+ @param value the value to copy
+ @param size the size to allocate and copy
+ @return a pointer to a new buffer with the same value
+*/
+void* mCpyAlloc(const void* value, size_t size);
+
+/*!
+ @brief Gets the chunk from the gamestate 
+*/
+static chunk* getChunk(const struct gamestate* current, int32_t chunkX, int32_t chunkZ);
+
+/*!
+ @brief Checks if the given type is air
+*/
+static bool isAir(const struct gameVersion* current, const identifier type);
+
+/*!
+ @brief Allocates and initializes a new entity object
+*/
+entity* initEntity();
+
+/*!
+ @brief Frees an entity
+*/
+void freeEntity(entity* e);
+
 #define event(gamestate, name, ...) \
     if(gamestate->eventHandlers.name != NULL){ \
         int result = (*gamestate->eventHandlers.name)(__VA_ARGS__); \
@@ -54,16 +81,7 @@ static void unloadChunk(listEl* el);
         } \
     } 
 
-#define forBlocks() \
-    for(int x = 0; x < 16; x++)\
-        for(int y = 0; y < 16; y++)\
-            for(int z = 0; z < 16; z++)
-
-#define yToSection(y) (y + (4 * 16)) >> 4
-
-#define statesFormula(x, y, z) ((y*16*16) + (z*16) + x)
-
-#define biomeFormula(x, y, z) statesFormula(x, y, z)/64
+//Magic numbers
 
 #define FLAGS_X 0x01
 #define FLAGS_Y 0x02
@@ -83,23 +101,29 @@ static void unloadChunk(listEl* el);
 #define biomePaletteThreshold 6
 #define blockPaletteThreshold 9
 
-/*!
- @brief Little convenience function that combines malloc and memcpy that effectively does a shallow copy
- @param value the value to copy
- @param size the size to allocate and copy
- @return a pointer to a new buffer with the same value
-*/
-void* mCpyAlloc(const void* value, size_t size){
-    void* res = malloc(size);
-    memcpy(res, value, size);
-    return res;
-}
+#define mcAirClass "AirBlock"
+
+#define transplantBiomes(section, biomes, version) \
+    if(biomes.states == NULL){ \
+        for(int i = 0; i < 64; i++){ \
+            section->biome[i] = version->biomes.palette[*biomes.palette]; \
+        } \
+    } \
+    else{ \
+        for(int i = 0; i < 64; i++){ \
+            int32_t id = biomes.states[i]; \
+            if(biomes.palette != NULL){ \
+                id = biomes.palette[id]; \
+            } \
+            section->biome[i] = version->biomes.palette[id]; \
+        } \
+    }
 
 int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVersion* version){
     int offset = 0;
     switch(input->packetId){
         case SPAWN_ENTITY:{
-            entity* e = malloc(sizeof(entity));
+            entity* e = initEntity();
             e->id = readVarInt(input->data, &offset);
             e->uid = readUUID(input->data, &offset);
             e->type = readVarInt(input->data, &offset);
@@ -113,14 +137,15 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             e->velocityX = readBigEndianShort(input->data, &offset);
             e->velocityY = readBigEndianShort(input->data, &offset);
             e->velocityZ = readBigEndianShort(input->data, &offset);
+            e->linked = NULL;
             addElement(output->entityList, (void*)e);
             event(output, spawnEntityHandler, e)
             break;
         }
         case SPAWN_EXPERIENCE_ORB:{
-            entity* exp = malloc(sizeof(entity));
+            entity* exp = initEntity();
             exp->id = readVarInt(input->data, &offset);
-            exp->type = getEntityId(version->entities, "minecraft:experience_orb");
+            exp->type = getEntityId(version, "minecraft:experience_orb");
             exp->x = readBigEndianDouble(input->data, &offset);
             exp->y = readBigEndianDouble(input->data, &offset);
             exp->z = readBigEndianDouble(input->data, &offset);
@@ -130,10 +155,10 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case SPAWN_PLAYER:{
-            entity* player = malloc(sizeof(entity));
+            entity* player = initEntity();
             player->id = readVarInt(input->data, &offset);
             player->uid = readUUID(input->data, &offset);
-            player->type = getEntityId(version->entities, "minecraft:player");
+            player->type = getEntityId(version, "minecraft:player");
             player->x = readBigEndianDouble(input->data, &offset);
             player->y = readBigEndianDouble(input->data, &offset);
             player->z = readBigEndianDouble(input->data, &offset);
@@ -240,18 +265,20 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case CHUNK_BIOMES:{
             int32_t num = readVarInt(input->data, &offset);
-            while(num > 0){
+            while(num > 0){ //foreach chunk in packet
                 int32_t chunkX = readBigEndianInt(input->data, &offset);
                 int32_t chunkZ = readBigEndianInt(input->data, &offset);
-                byteArray chunk = readByteArray(input->data, &offset);
+                int32_t limit = readVarInt(input->data, &offset) + offset;
+                chunk* ourChunk = getChunk(output, chunkX, chunkZ);
                 int chunkOffset = 0;
                 for(int i = 0; i < 24; i++){
-                    if(chunkOffset >= chunk.len){
+                    if(chunkOffset >= limit){
                         break;
                     }
-
+                    struct section* s = ourChunk->sections + i;
+                    palettedContainer biomes = readPalettedContainer(input->data, &offset, biomePaletteLowest, biomePaletteThreshold, version->biomes.sz);
+                    transplantBiomes(s, biomes, version)
                 }
-                free(chunk.bytes);
                 num--;
             }
             break;
@@ -426,15 +453,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             if(horse == NULL){
                 break;
             }
-            const cJSON* ent = version->entities;
-            while(ent != NULL){
-                if(horse->type == cJSON_GetObjectItemCaseSensitive(ent, "id")->valueint){
-                    if(strcmp(cJSON_GetObjectItemCaseSensitive(ent, "class")->valuestring, "HorseEntity") != 0){
-                        break;
-                    }
-                }
-                ent = ent->next;
-            }
+            //TODO:implement check if actually is horse
             output->openContainer->id = windowId;
             output->openContainer->slotCount = slotCount;
             free(output->openContainer->slots);
@@ -501,37 +520,26 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                         id = *blocks.palette;
                         type = version->blockStates.palette[id];
                     }
-                    //TODO:write NULL if air
-                    //initialize the new block
-                    block* newBlock = malloc(sizeof(block));
-                    newBlock->entity = NULL;
-                    newBlock->animationData = 0;
-                    newBlock->stage = 0;
-                    newBlock->state = id;
-                    newBlock->type = type;
-                    newBlock->x = x;
-                    newBlock->y = y;
-                    newBlock->z = z;
-                    newBlock->state = id;
+                    block* newBlock = NULL;
+                    if(!isAir(version, type)){
+                        //initialize the new block
+                        newBlock = malloc(sizeof(block));
+                        newBlock->entity = NULL;
+                        newBlock->animationData = 0;
+                        newBlock->stage = 0;
+                        newBlock->state = id;
+                        newBlock->type = type;
+                        newBlock->x = x;
+                        newBlock->y = y;
+                        newBlock->z = z;
+                        newBlock->state = id;
+                    }
                     s.blocks[x][y][z] = newBlock;
                 }
                 free(blocks.palette);
                 free(blocks.states);
                 palettedContainer biomes = readPalettedContainer(input->data, &offset, biomePaletteLowest, biomePaletteThreshold, version->biomes.sz);
-                if(biomes.states == NULL){
-                    for(int i = 0; i < 64; i++){
-                        s.biome[i] = version->biomes.palette[*biomes.palette];
-                    }
-                }
-                else{
-                    for(int i = 0; i < 64; i++){
-                        int32_t id = biomes.states[i];
-                        if(biomes.palette != NULL){
-                            id = biomes.palette[id];
-                        }
-                        s.biome[i] = version->biomes.palette[id];
-                    }
-                }
+                transplantBiomes((&s), biomes, version)
                 free(biomes.palette);
                 free(biomes.states);
                 newChunk->sections[i] = s;
@@ -633,8 +641,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             byte actions = readByte(input->data, &offset);
             output->playerInfo.number = readVarInt(input->data, &offset);
             for(int i = 0; i < output->playerInfo.number; i++){
-                struct genericPlayer* new = malloc(sizeof(struct genericPlayer));
-                memset(new, 0, sizeof(struct genericPlayer));
+                struct genericPlayer* new = calloc(1, sizeof(struct genericPlayer));
                 new->id = readUUID(input->data, &offset);
                 if(actions & INFO_ADD_PLAYER){
                     new->name = readString(input->data, &offset);
@@ -738,7 +745,18 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     addElement(our->metadata, new);
                 }
             }
+            event(output, entityEventHandler, our);
             break;            
+        }
+        case LINK_ENTITIES:{
+            int32_t attached = readBigEndianInt(input->data, &offset);
+            int32_t holding = readBigEndianInt(input->data, &offset);
+            entity* attachedEntity = getEntity(output, attached);
+            if(attachedEntity != NULL){
+                attachedEntity->linked = getEntity(output, holding);
+                event(output, entityEventHandler, attachedEntity);
+            }
+            break;
         }
         case UPDATE_TIME:{
             output->worldAge = readBigEndianLong(input->data, &offset);
@@ -764,7 +782,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case UPDATE_TAGS:{
             //int32_t count = readVarInt(input->data, &offset);
-            //MAYBE:, what is this for?
+            //MAYBE: what is this for?
             break;
         }
         default:{
@@ -786,7 +804,7 @@ struct gamestate initGamestate(){
 }
 
 void freeGamestate(struct gamestate* g){
-    freeList(g->entityList, free);
+    freeList(g->entityList, (void(*)(void*))freeEntity);
     freeList(g->chunks, (void(*)(void*))freeChunk);
     free(g->deathDimension);
     free(g->dimensionName);
@@ -813,10 +831,15 @@ void freeGamestate(struct gamestate* g){
     free(g->serverData.MOTD);
 }
 
-static int getEntityId(const cJSON* entities, const char* name){
-    cJSON* node = cJSON_GetObjectItemCaseSensitive(entities, name);
-    node = cJSON_GetObjectItemCaseSensitive(node, "id");
-    return node->valueint;
+//O(n) complexity, but still should be fast-ish with just 1000 elements
+//LATER:implementing a hashtable is something that can be done later
+static int getEntityId(const struct gameVersion* version, const char* name){
+    for(int i = 0; i < version->entities.sz; i++){
+        if(strcmp(name, version->entities.palette[i]) == 0){
+            return i;
+        }
+    }
+    return -1;
 }
 
 static block** getBlock(struct gamestate* current, position pos){
@@ -1069,6 +1092,14 @@ static struct entityMetadata* parseEntityMetadata(byte* input, int* offset){
     return new;
 }
 
+static bool isAir(const struct gameVersion* current, const identifier type){
+    bool result = false;
+    for(int i = 0; i < current->airTypes.sz; i++){
+        result |= strcmp(current->airTypes.palette[i], type) == 0;
+    }
+    return result;
+}
+
 struct gameVersion* createVersionStruct(const char* versionJSON, const char* biomesJSON, uint32_t protocol){
     //first we need to parse the json
     char* jsonContents = NULL;
@@ -1082,43 +1113,73 @@ struct gameVersion* createVersionStruct(const char* versionJSON, const char* bio
         fread(jsonContents, sz, 1, json);
         fclose(json);
     }
-    const cJSON* version = cJSON_ParseWithLength(jsonContents, sz);
+    cJSON* version = cJSON_ParseWithLength(jsonContents, sz);
     free(jsonContents);
     if(version == NULL){
         return NULL;
     }
     struct gameVersion* thisVersion = malloc(sizeof(struct gameVersion));
-    //then we get the entities list (I could do with a hashmap here)
-    thisVersion->entities = cJSON_GetObjectItemCaseSensitive(version, "entities");
-    if(thisVersion->entities == NULL){
-        return NULL;
-    }
-    {//then we create a lookup table
+    {//create a lookup table for entities
+        cJSON* entities = cJSON_GetObjectItemCaseSensitive(version, "entities");
+        thisVersion->entities.sz = cJSON_GetArraySize(entities);
+        thisVersion->entities.palette = calloc(thisVersion->entities.sz, sizeof(identifier));
+        short num = 0;
+        cJSON* child = entities->child;
+        for(int i = 0; i < thisVersion->entities.sz; i++){
+            cJSON* id = cJSON_GetObjectItemCaseSensitive(child, "id");
+            if(id != NULL){
+                thisVersion->entities.palette[id->valueint] = child->valuestring;
+                num++;
+            }
+            child = child->next;
+        }
+        //downsize the array if necessary
+        if(thisVersion->entities.sz != num){
+            thisVersion->entities.palette = realloc(thisVersion->entities.palette, num * sizeof(identifier));
+            thisVersion->entities.sz = num;
+        }
+    }   
+    {//then we create a lookup table for blocks and states
         //first get the blocks part of the json
         const cJSON* blocks = cJSON_GetObjectItemCaseSensitive(version, "blocks");
         //then initialize the blockTypes array for writing
         thisVersion->blockTypes.sz = cJSON_GetArraySize(blocks);
         thisVersion->blockTypes.palette = calloc(thisVersion->blockTypes.sz, sizeof(identifier));
         //then blockStates
-        cJSON* lastStates = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(blocks, thisVersion->blockTypes.sz - 1), "states");
+        int n = 1;
+        cJSON* lastStates = NULL;
+        do{ //we need to consider the possibility of the last element not having states
+            lastStates = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(blocks, thisVersion->blockTypes.sz - n), "states");
+            n++;
+        }
+        while(lastStates == NULL);
         cJSON* lastState = cJSON_GetArrayItem(lastStates, cJSON_GetArraySize(lastStates) - 1);
-        thisVersion->blockStates.sz = atoi(lastState->string);
+        thisVersion->blockStates.sz = atoi(lastState->string) + 1;
         thisVersion->blockStates.palette = calloc(thisVersion->blockStates.sz, sizeof(identifier));
+        thisVersion->airTypes.sz = 0; //now this is the index of the air array
+        thisVersion->airTypes.palette = NULL;
         cJSON* child = blocks->child;
         for(int i = 0; i < thisVersion->blockTypes.sz; i++){
             cJSON* id = cJSON_GetObjectItemCaseSensitive(child, "id");
-            thisVersion->blockTypes.palette[id->valueint] = child->string;
+            char* name = mCpyAlloc(child->string, strlen(child->string) + 1);
+            thisVersion->blockTypes.palette[id->valueint] = name;
             cJSON* states = cJSON_GetObjectItemCaseSensitive(child, "states");
             size_t statesSz = cJSON_GetArraySize(states);
             cJSON* state = states->child;
             for(int s = 0; s < statesSz; s++){
-                thisVersion->blockStates.palette[atoi(state->string)] = child->string;
+                thisVersion->blockStates.palette[atoi(state->string)] = name;
+                state = state->next;
+            }
+            cJSON* class = cJSON_GetObjectItemCaseSensitive(child, "class");
+            if(class != NULL && strcmp(class->valuestring, "AirBlock") == 0){
+                thisVersion->airTypes.palette = realloc(thisVersion->airTypes.palette, (thisVersion->airTypes.sz + 1) * sizeof(identifier));
+                thisVersion->airTypes.palette[thisVersion->airTypes.sz] = name;
+                thisVersion->airTypes.sz++;
             }
             child = child->next;
         }
-        //thisVersion->blockStates.sz = lastStates.;
     }
-    thisVersion->json = version;
+    cJSON_Delete(version);
     thisVersion->protocol = protocol;
     char* biomesContent = NULL;
     size_t biomesContentSize = 0;
@@ -1131,26 +1192,34 @@ struct gameVersion* createVersionStruct(const char* versionJSON, const char* bio
         fread(biomesContent, sz, 1, json);
         fclose(json);
     }
-    const cJSON* biomes = cJSON_ParseWithLength(biomesContent, biomesContentSize);
+    cJSON* biomes = cJSON_ParseWithLength(biomesContent, biomesContentSize);
     free(biomesContent);
     {
         thisVersion->biomes.sz = cJSON_GetArraySize(biomes);
         thisVersion->biomes.palette = calloc(thisVersion->biomes.sz, sizeof(identifier));
         cJSON* child = biomes->child;
         while(child != NULL){
-            thisVersion->biomes.palette[cJSON_GetObjectItemCaseSensitive(child, "id")->valueint] = child->valuestring;
+            thisVersion->biomes.palette[cJSON_GetObjectItemCaseSensitive(child, "id")->valueint] = mCpyAlloc(child->string, strlen(child->string) + 1);
             child = child->next;
         }
     }
+    cJSON_Delete(biomes);
     return thisVersion;
 }
 
 void freeVersionStruct(struct gameVersion* version){
     if(version != NULL){
-        cJSON_Delete((cJSON*)version->json);
+        for(int i = 0; i < version->blockTypes.sz; i++){
+            free(version->blockTypes.palette[i]);
+        }
         free(version->blockTypes.palette);
         free(version->blockStates.palette);
+        for(int i = 0; i < version->biomes.sz; i++){
+            free(version->biomes.palette[i]);
+        }
         free(version->biomes.palette);
+        free(version->airTypes.palette);
+        free(version->entities.palette);
         free(version);
     }
 }
@@ -1184,5 +1253,36 @@ void freeGenericPlayer(struct genericPlayer* p){
         free(p->name);
         freeList(p->properties, (void(*)(void*))freeProperty);
         free(p);
+    }
+}
+
+void* mCpyAlloc(const void* value, size_t size){
+    void* res = malloc(size);
+    memcpy(res, value, size);
+    return res;
+}
+
+static chunk* getChunk(const struct gamestate* current, int32_t chunkX, int32_t chunkZ){
+    chunk* res = NULL;
+    foreachListElement(current->chunks){
+        chunk* c = el->value;
+        if(c != NULL && c->x == chunkX && c->z == chunkZ){
+            res = c;
+            break;
+        }
+    }
+    return res;
+}
+
+entity* initEntity(){
+    entity* new = calloc(1, sizeof(entity));
+    new->metadata = initList();
+    return new;
+}
+
+void freeEntity(entity* e){
+    if(e != NULL){
+        freeList(e->metadata, free);
+        free(e);
     }
 }

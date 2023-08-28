@@ -336,15 +336,15 @@ int loginState(int socketFd, packet* response, UUID_t* given, const char* userna
     return 0;
 }
 
+//Shouldn't leak memory in case of error
 int playState(struct gamestate* current, packet response, int socketFd, int compression, const struct gameVersion* thisVersion){
-    bool play = true;
-    int index = 0;
-    int offset = 0;
+    int result = 1; //array indicating current status
+    int index = 0; //current index within backlog
     packet* backlog = NULL;
-    do{
+    while(true){ //as long as result == 1
         //there are some packet types that need immediate answer and separate processing
         switch (response.packetId){
-            case BUNDLE_DELIMITER:; //delimiter
+            case BUNDLE_DELIMITER:{
                 if(backlog == NULL){
                     backlog = calloc(MAX_PACKET, sizeof(packet));
                 }
@@ -352,56 +352,76 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
                     //process the backlog
                     for(int i = 0; i < index; i++){
                         if(parsePlayPacket(backlog + i, current, thisVersion) != 0){
-                            free(response.data);
-                            return -3;
+                            result = -1;
+                            //free all the following packets
+                            for(int n = i + 1; n < index; n++){
+                                free((backlog + n)->data);
+                            }
+                            free((backlog + i)->data);
+                            break;
                         }
+                        free((backlog + i)->data);
                     }
                     free(backlog);
                     backlog = NULL;
                     index = 0;
                 }
+                free(response.data);
                 break;
-            case DISCONNECT_PLAY:; //disconnect
+            }
+            case DISCONNECT_PLAY:{
                 printf("Disconnected:%s\n", readString(response.data, NULL));
-                play = false;
+                result = 0;
+                free(response.data);
                 break;
-            case KEEP_ALIVE:; //Keep alive
+            }
+            case KEEP_ALIVE:{
                 int64_t aliveId = *(int64_t*)response.data;
                 sendPacket(socketFd, sizeof(int64_t), KEEP_ALIVE_2, (byte*)&aliveId, compression);
+                free(response.data);
                 break;
-            case PING_PLAY:; //ping (the vanilla client doesn't respond)
+            }
+            case PING_PLAY:{
+                //ping (the vanilla client doesn't respond)
                 int32_t pingId = *(int32_t*)response.data;
                 sendPacket(socketFd, sizeof(int32_t), PONG_PLAY, (byte*)&pingId, compression);
+                free(response.data);
                 break;
-            case SYNCHRONIZE_PLAYER_POSITION:;
+            }
+            case SYNCHRONIZE_PLAYER_POSITION:{
                 //this is the responsive version of the handler
+                int offset = 0;
                 handleSynchronizePlayerPosition(&response, current, &offset);
                 int32_t teleportId = readVarInt(response.data, &offset);
                 byte packet[MAX_VAR_INT] = {};
                 size_t sz = writeVarInt(packet, teleportId);
                 sendPacket(socketFd, sz, CONFIRM_TELEPORTATION, packet, compression);
+                free(response.data);
                 break;
-            default:;
+            }
+            default:{
                 if(backlog == NULL){
                     //process the packet
                     if(parsePlayPacket(&response, current, thisVersion) != 0){
-                        free(response.data);
-                        return -3;
+                        result = -2;
                     }
+                    free(response.data);
                 }
                 else{
                     backlog[index] = response;
                     index++;
                 }
                 break;
+            }
         }
-        free(response.data);
+        if(result != 1){
+            break;
+        }
         response = getPacket(socketFd, compression);
         if(packetNull(response)){
             perror("Error while getting a packet");
-            return -4;
+            return -3;
         }
-    }while(play);
-    free(response.data);
-    return 0;
+    };
+    return result;
 }

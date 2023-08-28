@@ -121,7 +121,9 @@ struct entityMetadata{
 };
 
 //Minecraft entity
-typedef struct entity{
+typedef struct entity entity;
+
+struct entity{
     int id; 
     UUID_t uid; //Unique id of this entity
     uint8_t type; //id of entity class
@@ -138,7 +140,8 @@ typedef struct entity{
     uint8_t animation;
     byte status;
     listHead* metadata;
-} entity;
+    entity* linked; //The entity holding this entity
+};
 
 typedef enum block_faces{
     BOTTOM_FACE = 0, //-Y
@@ -186,22 +189,24 @@ typedef struct block{
     int32_t state;
     byte stage;
     uint16_t animationData;
-    blockEntity* entity;
+    blockEntity* entity; //the associated blockEntity
 } block;
 
 struct section{
-    int8_t y;
+    int8_t y; //The y index of this section going from -4 to plus 19
     uint16_t nonAir;
-    block* blocks[16][16][16];
-    identifier biome[64];
+    block* blocks[16][16][16]; //NULLable array of blocks, NULL meaning it's an air block
+    identifier biome[64]; //Encoded biome regions, each having a size of 4x4x4
 };
 
+//A Minecraft chunk column, consisting of a maximum of 24 sections
 typedef struct chunk{
     int32_t x;
     int32_t z;
     struct section sections[24];
 } chunk;
 
+//Minecraft gameplay difficulty
 typedef enum difficulty_levels{
     PEACEFUL = 0,
     EASY = 1,
@@ -209,6 +214,7 @@ typedef enum difficulty_levels{
     HARD = 3
 } difficulty_t;
 
+//A generic property for tying name->value
 struct property{
     char* name;
     char* value;
@@ -323,17 +329,33 @@ struct gamestate{
     } defaultSpawnPosition;
 };
 
-//TODO: rework the version system, create unique structs for biomes, block states, block types, entityTypes
-
 //Struct that contains all necessary info that determine what game features are present in our game version
 struct gameVersion{
     uint32_t protocol;
-    const cJSON* json;
-    const cJSON* entities;
+    struct palette entities;
     struct palette blockTypes;
     struct palette blockStates;
     struct palette biomes;
+    struct palette airTypes;
 };
+
+//Macros
+
+//Formula for getting the correct state from a palettedContainer that holds states
+#define statesFormula(x, y, z) ((y*16*16) + (z*16) + x)
+
+//Formula for getting the correct biome from a biome array 
+#define biomeFormula(x, y, z) statesFormula(x, y, z)/64
+
+//Foreach block in a section. Provides x, y and z
+#define forBlocks() \
+    for(int x = 0; x < 16; x++)\
+        for(int y = 0; y < 16; y++)\
+            for(int z = 0; z < 16; z++)
+
+#define yToSection(y) (y + (4 * 16)) >> 4
+
+//Functions
 
 /*!
  @brief Updates the gamestate based on the packet. The packet should be non special, as in not related to the protocol. Packets that require a response will not get that response, and ideally should be handled separately.
