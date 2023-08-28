@@ -352,6 +352,7 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
                     //process the backlog
                     for(int i = 0; i < index; i++){
                         if(parsePlayPacket(backlog + i, current, thisVersion) != 0){
+                            free(response.data);
                             return -3;
                         }
                     }
@@ -384,6 +385,7 @@ int playState(struct gamestate* current, packet response, int socketFd, int comp
                 if(backlog == NULL){
                     //process the packet
                     if(parsePlayPacket(&response, current, thisVersion) != 0){
+                        free(response.data);
                         return -3;
                     }
                 }

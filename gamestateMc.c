@@ -2,8 +2,6 @@
 #include <string.h>
 #include <errno.h>
 
-#include <math.h>
-
 #include "gamestateMc.h"
 #include "packetDefinitions.h"
 #include "stdbool.h"
@@ -63,9 +61,9 @@ static void unloadChunk(listEl* el);
 
 #define yToSection(y) (y + (4 * 16)) >> 4
 
-#define createLongMask(startBit, X) ((((uint64_t)1) << X) - 1) << startBit
+#define statesFormula(x, y, z) ((y*16*16) + (z*16) + x)
 
-#define statesFormula(x, y, z) (y*16*16) + (z*16) + x
+#define biomeFormula(x, y, z) statesFormula(x, y, z)/64
 
 #define FLAGS_X 0x01
 #define FLAGS_Y 0x02
@@ -82,8 +80,22 @@ static void unloadChunk(listEl* el);
 
 #define STATES_NUM 4096
 
+#define biomePaletteThreshold 6
+#define blockPaletteThreshold 9
+
+/*!
+ @brief Little convenience function that combines malloc and memcpy that effectively does a shallow copy
+ @param value the value to copy
+ @param size the size to allocate and copy
+ @return a pointer to a new buffer with the same value
+*/
+void* mCpyAlloc(const void* value, size_t size){
+    void* res = malloc(size);
+    memcpy(res, value, size);
+    return res;
+}
+
 int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVersion* version){
-    const int paletteThreshold = 9;
     int offset = 0;
     switch(input->packetId){
         case SPAWN_ENTITY:{
@@ -468,92 +480,60 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 struct section s = {};
                 s.y = i - 4;
                 s.nonAir = readBigEndianShort(input->data, &offset);
-                byte bitsPerEntry = readByte(input->data, &offset);
-                if(bitsPerEntry == 0){ //the palette contains a single value and the dataArray is empty
-                    int32_t globalId = readVarInt(input->data, &offset);
-                    //and this id in the global palette indicates what every block in section is
-                    forBlocks(){
-                        s.blocks[x][y][z] = malloc(sizeof(block));
-                        memset(s.blocks[x][y][z], 0, sizeof(block));
-                        s.blocks[x][y][z]->type = version->blockStates.palette[globalId];
-                        s.blocks[x][y][z]->x = x;
-                        s.blocks[x][y][z]->y = y;
-                        s.blocks[x][y][z]->z = z;
-                        s.blocks[x][y][z]->state = globalId;
-                    }
-                    (void)readVarInt(input->data, &offset); //we need to offset by the data array length field
+                palettedContainer blocks = readPalettedContainer(input->data, &offset, blockPaletteLowest, blockPaletteThreshold, version->blockStates.sz);
+                if(blocks.palette == NULL && blocks.states == NULL){
+                    return -2;
                 }
-                else{
-                    uint32_t* localPalette = NULL;
-                    size_t paletteLength = 0;
-                    if(bitsPerEntry >= paletteThreshold){
-                        //the ceilf(log2f(size of palette)) is the size of elements in the array
-                        bitsPerEntry = (byte)ceilf(log2f((float)version->blockTypes.sz));
-                        //and the local palette is the global palette
-                    }
-                    else{
-                        if(bitsPerEntry < 4){
-                            bitsPerEntry = 4;
-                        }
-                        //else we just keep the value
-                        paletteLength = readVarInt(input->data, &offset);
-                        localPalette = calloc(paletteLength, sizeof(uint32_t));
-                        for(int n = 0; n < paletteLength; n++){
-                            //this is a state index
-                            uint32_t element = readVarInt(input->data, &offset);
-                            //sanity check 1
-                            if(element > version->blockStates.sz){
-                                errno = E2BIG; //FIXME: encountered multiple times weird 8 bit long varints
-                                return -1;
-                            }
-                            localPalette[n] = element;
-                        }
-                    }
-                    //and now we need to get the states
-                    uint16_t numPerLong = (uint16_t)(64/bitsPerEntry); //number of elements of the array in a single long
-                    uint16_t index = 0; //the current MAIN array index
-                    int32_t numLongs = readVarInt(input->data, &offset); //the number of longs the MAIN array has been split into
-                    uint32_t states[STATES_NUM] = {}; //the states
-                    for(int l = 0; l < numLongs; l++){//foreach Long
-                        uint64_t ourLong = readBigEndianULong(input->data, &offset);
-                        for(uint8_t b = 0; b < numPerLong; b++){ //foreach element in long
-                            if(index >= STATES_NUM){
-                                break;
-                            }
-                            uint16_t bits = b * bitsPerEntry;
-                            uint32_t state = (uint32_t)((createLongMask(bits, bitsPerEntry) & ourLong) >> bits);
-                            //sanity check 2
-                            if((localPalette != NULL && state > paletteLength) || state > version->blockStates.sz){
-                                errno = E2BIG;
-                                return -2;
-                            }
-                            states[index] = state;
-                            index++;
-                        }
-                    }
-                    //and now foreach block
-                    forBlocks(){    
-                        //initialize the new block
-                        block* newBlock = malloc(sizeof(block));
-                        newBlock->entity = NULL;
-                        newBlock->animationData = 0;
-                        newBlock->stage = 0;
-                        //get the state
-                        uint32_t id = states[statesFormula(x, y, z)];
-                        if(localPalette != NULL){ //apply the localPalette if necessary
-                            id = localPalette[id];
+                //and now foreach block
+                forBlocks(){
+                    //first get the state
+                    uint32_t id = 0;
+                    identifier type = NULL;
+                    if(blocks.states != NULL){
+                        id = blocks.states[statesFormula(x, y, z)];
+                        if(blocks.palette != NULL){ //apply the localPalette if necessary
+                            id = blocks.palette[id];
                         }
                         //and then apply the global palette and boom type gotten
-                        newBlock->type = version->blockStates.palette[id];
-                        newBlock->x = x;
-                        newBlock->y = y;
-                        newBlock->z = z;
-                        newBlock->state = id;
-                        s.blocks[x][y][z] = newBlock;
+                        type = version->blockStates.palette[id];
                     }
-                    free(localPalette);
-                    //TODO: handle biomes
+                    else{
+                        id = *blocks.palette;
+                        type = version->blockStates.palette[id];
+                    }
+                    //TODO:write NULL if air
+                    //initialize the new block
+                    block* newBlock = malloc(sizeof(block));
+                    newBlock->entity = NULL;
+                    newBlock->animationData = 0;
+                    newBlock->stage = 0;
+                    newBlock->state = id;
+                    newBlock->type = type;
+                    newBlock->x = x;
+                    newBlock->y = y;
+                    newBlock->z = z;
+                    newBlock->state = id;
+                    s.blocks[x][y][z] = newBlock;
                 }
+                free(blocks.palette);
+                free(blocks.states);
+                palettedContainer biomes = readPalettedContainer(input->data, &offset, biomePaletteLowest, biomePaletteThreshold, version->biomes.sz);
+                if(biomes.states == NULL){
+                    for(int i = 0; i < 64; i++){
+                        s.biome[i] = version->biomes.palette[*biomes.palette];
+                    }
+                }
+                else{
+                    for(int i = 0; i < 64; i++){
+                        int32_t id = biomes.states[i];
+                        if(biomes.palette != NULL){
+                            id = biomes.palette[id];
+                        }
+                        s.biome[i] = version->biomes.palette[id];
+                    }
+                }
+                free(biomes.palette);
+                free(biomes.states);
                 newChunk->sections[i] = s;
             }
             int32_t blockEntityCount = readVarInt(input->data, &offset);
@@ -801,13 +781,11 @@ struct gamestate initGamestate(){
     memset(&g, 0, sizeof(struct gamestate));
     g.entityList = initList();
     g.chunks = initList();
-    g.blockEntities = initList();
     g.playerInfo.players = initList();
     return g;
 }
 
 void freeGamestate(struct gamestate* g){
-    freeList(g->blockEntities, (void(*)(void*))freeBlockEntity);
     freeList(g->entityList, free);
     freeList(g->chunks, (void(*)(void*))freeChunk);
     free(g->deathDimension);
@@ -873,12 +851,7 @@ void freeChunk(chunk* c){
             for(uint8_t x = 0; x < 16; x++){
                 for(uint8_t y = 0; y < 16; y++){
                     for(uint8_t z = 0; z < 16; z++){
-                        if(c->sections[s].blocks[x][y][z] != NULL){
-                            free(c->sections[s].blocks[x][y][z]->type);
-                            nbt_free(c->sections[s].blocks[x][y][z]->entity->tag);
-                            free(c->sections[s].blocks[x][y][z]->entity);
-                            free(c->sections[s].blocks[x][y][z]);
-                        }
+                        freeBlock(c->sections[s].blocks[x][y][z]);
                     }
                 }
             }
@@ -1096,7 +1069,7 @@ static struct entityMetadata* parseEntityMetadata(byte* input, int* offset){
     return new;
 }
 
-struct gameVersion* createVersionStruct(const char* versionJSON, uint32_t protocol){
+struct gameVersion* createVersionStruct(const char* versionJSON, const char* biomesJSON, uint32_t protocol){
     //first we need to parse the json
     char* jsonContents = NULL;
     long sz = 0;
@@ -1120,8 +1093,7 @@ struct gameVersion* createVersionStruct(const char* versionJSON, uint32_t protoc
     if(thisVersion->entities == NULL){
         return NULL;
     }
-    //then we create a lookup table
-    {
+    {//then we create a lookup table
         //first get the blocks part of the json
         const cJSON* blocks = cJSON_GetObjectItemCaseSensitive(version, "blocks");
         //then initialize the blockTypes array for writing
@@ -1148,31 +1120,69 @@ struct gameVersion* createVersionStruct(const char* versionJSON, uint32_t protoc
     }
     thisVersion->json = version;
     thisVersion->protocol = protocol;
+    char* biomesContent = NULL;
+    size_t biomesContentSize = 0;
+    {
+        FILE* json = fopen(biomesJSON, "r");
+        fseek(json, 0, SEEK_END);
+        biomesContentSize = ftell(json);
+        fseek(json, 0, SEEK_SET);
+        biomesContent = calloc(sz + 1, 1);
+        fread(biomesContent, sz, 1, json);
+        fclose(json);
+    }
+    const cJSON* biomes = cJSON_ParseWithLength(biomesContent, biomesContentSize);
+    free(biomesContent);
+    {
+        thisVersion->biomes.sz = cJSON_GetArraySize(biomes);
+        thisVersion->biomes.palette = calloc(thisVersion->biomes.sz, sizeof(identifier));
+        cJSON* child = biomes->child;
+        while(child != NULL){
+            thisVersion->biomes.palette[cJSON_GetObjectItemCaseSensitive(child, "id")->valueint] = child->valuestring;
+            child = child->next;
+        }
+    }
     return thisVersion;
 }
 
 void freeVersionStruct(struct gameVersion* version){
-    cJSON_Delete((cJSON*)version->json);
-    free(version->blockTypes.palette);
-    free(version->blockStates.palette);
-    free(version);
+    if(version != NULL){
+        cJSON_Delete((cJSON*)version->json);
+        free(version->blockTypes.palette);
+        free(version->blockStates.palette);
+        free(version->biomes.palette);
+        free(version);
+    }
 }
 
 void freeBlockEntity(blockEntity* e){
-    nbt_free(e->tag);
-    free(e);
+    if(e != NULL){
+        nbt_free(e->tag);
+        free(e);
+    }
+}
+
+void freeBlock(block* b){
+    if(b != NULL){
+        freeBlockEntity(b->entity);
+        free(b);
+    }
 }
 
 void freeProperty(struct property* p){
-    free(p->name);
-    free(p->signature);
-    free(p->value);
-    free(p);
+    if(p != NULL){
+        free(p->name);
+        free(p->signature);
+        free(p->value);
+        free(p);
+    }
 }
 
 void freeGenericPlayer(struct genericPlayer* p){
-    free(p->displayName);
-    free(p->name);
-    freeList(p->properties, (void(*)(void*))freeProperty);
-    free(p);
+    if(p != NULL){
+        free(p->displayName);
+        free(p->name);
+        freeList(p->properties, (void(*)(void*))freeProperty);
+        free(p);
+    }
 }

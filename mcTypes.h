@@ -35,11 +35,13 @@ typedef int64_t position;
 
 #define nullStringArray (stringArray){NULL, 0}
 
+//VarInt and VarLong are encoded as strings of bytes, with each byte storing only 7 bits of data (SEGMENT_BITS) and one bit (CONTINUE_BIT) indicating whether the next byte also belongs to this varInt
+//And since 32/7 = 4,5 MAX_VAR_INT is 5
+
 #define SEGMENT_BITS 0x7F
 #define CONTINUE_BIT 0x80
-
-#define MAX_VAR_INT 4
-#define MAX_VAR_LONG 8
+#define MAX_VAR_INT 5 //Maximum number of bytes a VarInt can take up
+#define MAX_VAR_LONG 10 //Maximum number of bytes a VarLong can take up
 
 //Gets the X from position
 #define positionX(position) (position >> 38)
@@ -90,6 +92,17 @@ typedef struct slot{
     nbt_node* NBT;
     int32_t cooldown;
 } slot;
+
+typedef struct palettedContainer{
+    size_t paletteSize;
+    int32_t* palette;
+    int32_t* states;
+} palettedContainer;
+
+#define nullPalettedContainer (palettedContainer){0, NULL, NULL}
+
+#define blockPaletteLowest 4
+#define biomePaletteLowest 1
 
 /*! 
  @brief Writes the given value to the buffer as VarInt
@@ -170,7 +183,7 @@ int64_t readLong(const byte* buff, int* index);
  @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
  @return the encoded int64
 */
-int64_t readBigEndianLong(const byte* buff, int* offset);
+int64_t readBigEndianLong(const byte* buff, int* index);
 
 /*!
  @brief Reads a big endian int64 from the buffer and then swaps the endianness without preserving the sign bit
@@ -178,7 +191,7 @@ int64_t readBigEndianLong(const byte* buff, int* offset);
  @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
  @return the encoded uint64
 */
-uint64_t readBigEndianULong(const byte* buff, int* offset);
+uint64_t readBigEndianULong(const byte* buff, int* index);
 
 /*!
  @brief Read a boolean from the buffer at index
@@ -274,7 +287,7 @@ double readDouble(const byte* buff, int* index);
  @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
  @return the encoded double
 */
-double readBigEndianDouble(const byte* buff, int* offset);
+double readBigEndianDouble(const byte* buff, int* index);
 
 /*!
  @brief Calculates the size of the nbt tag in the buffer
@@ -306,7 +319,7 @@ float readFloat(const byte* buff, int* index);
  @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
  @return the encoded float
 */
-float readBigEndianFloat(const byte* buff, int* offset);
+float readBigEndianFloat(const byte* buff, int* index);
 
 /*!
  @brief Reads a varLong from memory
@@ -315,5 +328,16 @@ float readBigEndianFloat(const byte* buff, int* offset);
  @return the encoded varLong
 */
 int64_t readVarLong(const byte* buff, int* index);
+
+/*!
+ @brief Reads a palettedContainer from buffer
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @param bitsLowest the lowest acceptable size of elements in states
+ @param bitsThreshold the threshold that determines whether bits per element in the states array should be determined dynamicly
+ @param globalPaletteSize the size of the globalPallete the palette in this palettedContainer will point to
+ @return palettedContainer or nullPalettedContainer on error
+*/
+palettedContainer readPalettedContainer(const byte* buff, int* index, const int bitsLowest, const int bitsThreshold, const size_t globalPaletteSize);
 
 #endif

@@ -193,6 +193,7 @@ struct section{
     int8_t y;
     uint16_t nonAir;
     block* blocks[16][16][16];
+    identifier biome[64];
 };
 
 typedef struct chunk{
@@ -270,7 +271,6 @@ struct gamestate{
     int portalCooldown;
     bool loginPlay; //if we can send packets back during play
     listHead* entityList;
-    listHead* blockEntities;
     struct pendingChanges{ //Array of changes that have been sent to the server, but haven't been acknowledged by the server
         struct blockChange* array;
         size_t len;
@@ -323,6 +323,8 @@ struct gamestate{
     } defaultSpawnPosition;
 };
 
+//TODO: rework the version system, create unique structs for biomes, block states, block types, entityTypes
+
 //Struct that contains all necessary info that determine what game features are present in our game version
 struct gameVersion{
     uint32_t protocol;
@@ -330,6 +332,7 @@ struct gameVersion{
     const cJSON* entities;
     struct palette blockTypes;
     struct palette blockStates;
+    struct palette biomes;
 };
 
 /*!
@@ -365,7 +368,7 @@ int handleSynchronizePlayerPosition(packet* input, struct gamestate* output, int
 /*!
  @brief Creates a version struct
 */
-struct gameVersion* createVersionStruct(const char* versionJSON, uint32_t protocol);
+struct gameVersion* createVersionStruct(const char* versionJSON, const char* biomesJSON, uint32_t protocol);
 
 /*!
  @brief Frees a previously created version struct
@@ -373,9 +376,9 @@ struct gameVersion* createVersionStruct(const char* versionJSON, uint32_t protoc
 void freeVersionStruct(struct gameVersion* version);
 
 /*!
- @brief Frees a block entity
+ @brief Frees a block
 */
-void freeBlockEntity(blockEntity* e);
+void freeBlock(block* b);
 
 /*!
  @brief Frees a generic player struct

@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <string.h>
 
+#include <math.h>
+
 #include "mcTypes.h"
 
 //If index is null then changes index to point to a newly created int with value of 0
@@ -12,6 +14,8 @@
         int locIndex = 0; \
         index = &locIndex; \
     }
+
+#define createLongMask(startBit, X) ((((uint64_t)1) << X) - 1) << startBit
 
 static inline int16_t swapShort(int16_t s){
     return (s << 8) | ((s >> 8) & 0xFF);
@@ -56,8 +60,9 @@ size_t writeVarInt(byte* buff, int32_t value){
 
 int32_t readVarInt(const byte* buff, int* index){
     int32_t value = 0;
-    int position = 0; //position in bytes
-    getIndex(index)
+    int position = 0; //position in bits
+    getIndex(index) //position in bytes
+    const int startIndex = *index;
     while(true){
         byte currentByte = buff[*index];
         *index += 1;
@@ -67,9 +72,10 @@ int32_t readVarInt(const byte* buff, int* index){
 
         position += 7;
 
-        if(position >= 32){
+        if(position >= 32 || (*index - startIndex) > MAX_VAR_INT){
             errno = EOVERFLOW;
-            return 0;
+            //I am torn on either using 0 or INT_MAX, well I guess at least INT_MAX is less likely to get returned and is more accurate % wise?
+            return INT32_MAX; 
         }
     }
     return value;
@@ -299,6 +305,7 @@ int64_t readVarLong(const byte* buff, int* index){
     int64_t value = 0;
     int position = 0;
     getIndex(index)
+    const int startIndex = *index;
     while(true){
         byte currentByte = buff[*index];
         *index += 1;
@@ -308,25 +315,25 @@ int64_t readVarLong(const byte* buff, int* index){
 
         position += 7;
 
-        if(position >= 64){
+        if(position >= 64 || (*index - startIndex) > MAX_VAR_LONG){
             errno = EOVERFLOW;
-            return 0;
+            return INT_FAST64_MAX;
         }
     }
     return value;
 }
 
-int64_t readBigEndianLong(const byte* buff, int* offset){
-    int64_t littleEndian = readLong(buff, offset);
+int64_t readBigEndianLong(const byte* buff, int* index){
+    int64_t littleEndian = readLong(buff, index);
     return swapLong(littleEndian);
 }
 
-float readBigEndianFloat(const byte* buff, int* offset){
-    return (float)readBigEndianInt(buff, offset);
+float readBigEndianFloat(const byte* buff, int* index){
+    return (float)readBigEndianInt(buff, index);
 }
 
-double readBigEndianDouble(const byte* buff, int* offset){
-    return (double)readBigEndianLong(buff, offset);
+double readBigEndianDouble(const byte* buff, int* index){
+    return (double)readBigEndianLong(buff, index);
 }
 
 size_t writeShort(byte* buff, int16_t num){
@@ -336,15 +343,79 @@ size_t writeShort(byte* buff, int16_t num){
 
 size_t writeBigEndianShort(byte* buff, int16_t num){
     int16_t bigEndian = swapShort(num);
-    writeShort(buff, bigEndian);
+    return writeShort(buff, bigEndian);
 }
 
 size_t writeBigEndianUShort(byte* buff, uint16_t num){
     uint16_t bigEndian = swapUShort(num);
-    writeShort(buff, bigEndian);
+    return writeShort(buff, bigEndian);
 }
 
-uint64_t readBigEndianULong(const byte* buff, int* offset){
-    uint64_t littleEndian = readLong(buff, offset);
+uint64_t readBigEndianULong(const byte* buff, int* index){
+    uint64_t littleEndian = readLong(buff, index);
     return swapULong(littleEndian);
+}
+
+palettedContainer readPalettedContainer(const byte* buff, int* index, const int bitsLowest, const int bitsThreshold, const size_t globalPaletteSize){
+    palettedContainer result = {};
+    byte bitsPerEntry = readByte(buff, index);
+    if(bitsPerEntry == 0){
+        result.paletteSize = 1;
+        result.palette = malloc(sizeof(int32_t));
+        *result.palette = readVarInt(buff, index);
+        result.states = NULL;
+        (void)readVarInt(buff, index);
+        return result;
+    }
+    else{
+        if(bitsPerEntry >= bitsThreshold){
+            bitsPerEntry = (byte)ceilf(log2f((float)globalPaletteSize));
+            result.palette = NULL;
+            result.paletteSize = 0;
+        }
+        else{
+            if(bitsPerEntry < bitsLowest){
+                bitsPerEntry = bitsLowest;
+            }
+            result.paletteSize = readVarInt(buff, index);
+            result.palette = calloc(result.paletteSize, sizeof(uint32_t));
+            for(int n = 0; n < result.paletteSize; n++){
+                //this is a state index
+                uint32_t element = readVarInt(buff, index);
+                //sanity check 1
+                if(element > globalPaletteSize){
+                    errno = E2BIG; 
+                    free(result.palette);
+                    return nullPalettedContainer;
+                }
+                result.palette[n] = element;
+            }
+        }
+        //and now we need to get the states
+        const uint16_t numPerLong = (uint16_t)(64/bitsPerEntry); //number of elements of the array in a single long
+        uint16_t arrIndex = 0; //the current MAIN array index
+        const int32_t numLongs = readVarInt(buff, index); //the number of longs the MAIN array has been split into
+        const size_t statesSize = (size_t)ceilf((float)numPerLong * (float)numLongs);
+        result.states = calloc(statesSize, sizeof(uint32_t)); //the states
+        for(int l = 0; l < numLongs; l++){//foreach Long
+            uint64_t ourLong = readBigEndianULong(buff, index);
+            for(uint8_t b = 0; b < numPerLong; b++){ //foreach element in long
+                if(arrIndex >= statesSize){
+                    break;
+                }
+                uint16_t bits = b * bitsPerEntry;
+                uint32_t state = (uint32_t)((createLongMask(bits, bitsPerEntry) & ourLong) >> bits);
+                //sanity check 2
+                if((result.palette != NULL && state > result.paletteSize) || state > globalPaletteSize){
+                    errno = E2BIG;
+                    free(result.palette);
+                    free(result.states);
+                    return nullPalettedContainer;
+                }
+                result.states[arrIndex] = state;
+                arrIndex++;
+            }
+        }
+    }
+    return result;
 }

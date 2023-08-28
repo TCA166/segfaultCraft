@@ -24,6 +24,8 @@
 
 #define VERSION_JSON "./19.4.json"
 
+#define BIOMES_JSON "./biomes.json"
+
 //https://wiki.vg/Protocol#Definitions
 
 int main(int argc, char** argv){
@@ -76,12 +78,14 @@ int main(int argc, char** argv){
     //Login state
     int result = loginState(sockFd, &response, &player, username, &compression);
     if(result != 0){
-        perror("Error encountered during login");
+        if(result < 0){
+            perror("Error encountered during login");
+        }
         return result;
     }
     printf("Successfully logged in\n");
     struct gamestate current = initGamestate();
-    struct gameVersion* thisVersion = createVersionStruct(VERSION_JSON, protocol);
+    struct gameVersion* thisVersion = createVersionStruct(VERSION_JSON, BIOMES_JSON, protocol);
     result = playState(&current, response, sockFd, compression, thisVersion);
     freeVersionStruct(thisVersion);
     freeGamestate(&current);
