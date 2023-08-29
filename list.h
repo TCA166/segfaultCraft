@@ -19,13 +19,18 @@ struct listHead{
 };
 
 struct listEl{
-    listEl* next;
-    listEl* prev;
+    listEl* next; //If NULL then this is the last element
+    listEl* prev; //If NULL then this is the first element
     void* value;
-    listHead* head;
+    listHead* head; //If NULL then next and prev should be NULL
 };
 
-#define foreachListElement(list) \
+/*!
+ @brief Iterates over every element within a list.
+ @param list the listHead* that wraps your list
+ @param el the name of the provided listEl* variable. Freeing this will cause invalid reads
+*/
+#define foreachListElement(list, el) \
     for(listEl* el = list->first; el != NULL; el=el->next)
 
 /*!
@@ -42,14 +47,14 @@ listEl* getElement(listHead* list, int index);
  @param value pointer to the new element value
  @return the new element index
 */
-int addElement(listHead* list, void* value);
+unsigned int addElement(listHead* list, void* value);
 
 /*!
  @brief Removes element at index
  @param list the list head
  @param index the index of element to be removed
 */
-listEl* removeElement(listHead* list, int index);
+listEl* removeElement(listHead* list, unsigned int index);
 
 /*!
  @brief Unlinks the element from the list

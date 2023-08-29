@@ -27,12 +27,13 @@ listHead* initList(){
 listEl* newElement(void* value){
     listEl* new = malloc(sizeof(listEl));
     new->next = NULL;
+    new->prev = NULL;
     new->value = value;
     new->head = NULL;
     return new;
 }
 
-int addElement(listHead* list, void* value){
+unsigned int addElement(listHead* list, void* value){
     listEl* new = newElement(value);
     new->head = list;
     list->len++;
@@ -50,32 +51,38 @@ int addElement(listHead* list, void* value){
     return index;
 }
 
-listEl* removeElement(listHead* list, int index){
-    if(index < 0 || index > list->len){
+listEl* removeElement(listHead* list, unsigned int index){
+    if(index > list->len){
         return NULL;
     }
     listEl* el = list->first;
-    while(el != NULL){
-        if(index == 0){
-            break;
-        }
+    while(el != NULL && index != 0){
         index--;
         el = el->next;
     }
     if(el != NULL){
-        
+        unlinkElement(el);
     }
     return el;
 }
 
 listEl* unlinkElement(listEl* el){
-    listEl* prev = el->prev;
-    prev->next = el->next;
-    el->next->prev = prev;
+    if(el->prev != NULL){ //if there is a previous element
+        el->prev->next = el->next; //we need to bridge the gap
+    }
+    else{
+        el->head->first = el->next; //else the list head is the previous element and needs to be set accordingly
+    }
+    if(el->next != NULL){ //if there is a next element
+        el->next->prev = el->prev; //we need to bridge the gap
+    }
+    else{
+        el->head->last = el->prev; //else we need to update the last pointer
+    }
     el->head = NULL;
     el->prev = NULL;
     el->next = NULL;
-    return prev;
+    return el->prev;
 }
 
 void freeListElement(listEl* el, bool freeValue){

@@ -80,7 +80,7 @@ typedef struct identifierArray{
 
 //A minecraft style networking packet
 typedef struct packet{
-    int size; //The size of the entire packet, so sizeof(data) + sizeof(packetId)
+    int size; //The size of data
     byte packetId;
     byte* data;
 } packet;

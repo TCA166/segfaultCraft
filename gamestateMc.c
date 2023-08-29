@@ -71,7 +71,23 @@ entity* initEntity();
 /*!
  @brief Frees an entity
 */
-void freeEntity(entity* e);
+static void freeEntity(entity* e);
+
+static inline void updateEntityPosition(entity* e, const byte* buff, int* index);
+
+static inline void updateEntityRotation(entity* e, const byte* buff, int* index);
+
+/*!
+ @brief Frees a block
+*/
+static void freeBlock(block* b);
+
+/*!
+ @brief Frees a generic player struct
+*/
+static void freeGenericPlayer(struct genericPlayer* p);
+
+static void freeEntityAttribute(struct entityAttribute* eA);
 
 #define event(gamestate, name, ...) \
     if(gamestate->eventHandlers.name != NULL){ \
@@ -102,6 +118,12 @@ void freeEntity(entity* e);
 #define blockPaletteThreshold 9
 
 #define mcAirClass "AirBlock"
+
+/*Minecraft does this sometimes where they will get a value, and in order to limit it they will multiply it so that the desired maximum value == SHORT_MAX
+Call me cynical but I would use a int8 for such a thing*/
+
+//Macro for getting the change value from a limited short
+#define deltaShortFormula(s) ((int16_t)s/(4096))
 
 #define transplantBiomes(section, biomes, version) \
     if(biomes.states == NULL){ \
@@ -134,9 +156,9 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             e->yaw = readByte(input->data, &offset);
             e->headYaw = readByte(input->data, &offset);
             e->data = readVarInt(input->data, &offset);
-            e->velocityX = readBigEndianShort(input->data, &offset);
-            e->velocityY = readBigEndianShort(input->data, &offset);
-            e->velocityZ = readBigEndianShort(input->data, &offset);
+            e->velocityX = (float)readBigEndianShort(input->data, &offset) / 8000.0;
+            e->velocityY = (float)readBigEndianShort(input->data, &offset) / 8000.0;
+            e->velocityZ = (float)readBigEndianShort(input->data, &offset) / 8000.0;
             e->linked = NULL;
             addElement(output->entityList, (void*)e);
             event(output, spawnEntityHandler, e)
@@ -630,17 +652,61 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             output->portalCooldown = readVarInt(input->data, &offset);
             break;  
         }
+        case UPDATE_ENTITY_POSITION:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                updateEntityPosition(e, input->data, &offset);
+            }
+            break;
+        }
+        case UPDATE_ENTITY_POSITION_AND_ROTATION:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                updateEntityPosition(e, input->data, &offset);
+                updateEntityRotation(e, input->data, &offset);
+                e->onGround = readBool(input->data, &offset);
+            }
+            break;
+        }
+        case UPDATE_ENTITY_ROTATION:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                updateEntityRotation(e, input->data, &offset);
+            }
+            break;
+            break;
+        }
         case PLAYER_ABILITIES:{
             output->player.flags = readByte(input->data, &offset);
             output->player.flyingSpeed = readBigEndianFloat(input->data, &offset);
             output->player.fovModifier = readBigEndianFloat(input->data, &offset);
             break;
         }
+        case PLAYER_INFO_REMOVE:{
+            int32_t num = readVarInt(input->data, &offset);
+            for(int i = 0; i < num; i++){
+                UUID_t uid = readUUID(input->data, &offset);
+                listEl* thisEl = output->playerInfo->first;
+                while(thisEl != NULL){
+                    listEl* el = thisEl;
+                    thisEl = thisEl->next;
+                    if(((struct genericPlayer*)el->value)->id == uid){
+                        unlinkElement(el);
+                        freeGenericPlayer(el->value);
+                        freeListElement(el, false);
+                    }   
+                }
+            }
+            break;
+        }
         case PLAYER_INFO_UPDATE:{
             //this variable defines what info is appended to each player info element 
             byte actions = readByte(input->data, &offset);
-            output->playerInfo.number = readVarInt(input->data, &offset);
-            for(int i = 0; i < output->playerInfo.number; i++){
+            int32_t playerNumber = readVarInt(input->data, &offset);
+            for(int i = 0; i < playerNumber; i++){
                 struct genericPlayer* new = calloc(1, sizeof(struct genericPlayer));
                 new->id = readUUID(input->data, &offset);
                 if(actions & INFO_ADD_PLAYER){
@@ -683,7 +749,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                         new->displayName = readString(input->data, &offset);
                     }
                 }
-                addElement(output->playerInfo.players, new);
+                addElement(output->playerInfo, new);
             }
             break;
         }
@@ -693,7 +759,15 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case UPDATE_RECIPE_BOOK:{
-            //MAYBE:
+            //MAYBE
+            break;
+        }
+        case SET_HEAD_ROTATION:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                e->headYaw = (angle_t)readByte(input->data, &offset); 
+            }
             break;
         }
         case SERVER_DATA:{
@@ -716,7 +790,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             if(output->player.currentChunk != NULL && output->player.currentChunk->x == chunkX && output->player.currentChunk->z == chunkZ){
                 break;
             }
-            foreachListElement(output->chunks){
+            foreachListElement(output->chunks, el){
                 chunk* c = el->value;
                 if(c->x == chunkX && c->z == chunkZ){
                     output->player.currentChunk = c;
@@ -758,6 +832,41 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             }
             break;
         }
+        case SET_ENTITY_VELOCITY:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                e->velocityX = (float)readBigEndianShort(input->data, &offset) / 8000.0;
+                e->velocityY = (float)readBigEndianShort(input->data, &offset) / 8000.0;
+                e->velocityZ = (float)readBigEndianShort(input->data, &offset) / 8000.0;
+            }
+            break;
+        }
+        case SET_EQUIPMENT:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                byte slot = CONTINUE_BIT;
+                //WARNING potential for big scary invalid reads here should say something as simple as a bit flip occur.
+                while(slot & CONTINUE_BIT){
+                    slot = readByte(input->data, &offset);
+                    e->items[slot & SEGMENT_BITS] = readSlot(input->data, &offset);
+                }
+            }
+            break;
+        }
+        case SET_EXPERIENCE:{
+            output->player.experienceBar = readBigEndianFloat(input->data, &offset);
+            output->player.totalExperience = readVarInt(input->data, &offset);
+            output->player.level = readVarInt(input->data, &offset);
+            break;
+        }
+        case SET_HEALTH:{
+            output->player.health = readBigEndianFloat(input->data, &offset);
+            output->player.food = readVarInt(input->data, &offset);
+            output->player.saturation = readBigEndianFloat(input->data, &offset);
+            break;
+        }
         case UPDATE_TIME:{
             output->worldAge = readBigEndianLong(input->data, &offset);
             output->timeOfDay = readBigEndianLong(input->data, &offset);
@@ -767,6 +876,41 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             //TODO: handle
             break;
         }
+        case UPDATE_ADVANCEMENTS:{
+            //MAYBE implement this
+            break;
+        }
+        case UPDATE_ATTRIBUTES:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                e->attributeCount = readVarInt(input->data, &offset);
+                if(e->attributes != NULL){
+                    for(int i = 0; i < e->attributeCount; i++){
+                        free(e->attributes[i].key);
+                        free(e->attributes[i].modifiers);
+                    }
+                    free(e->attributes);
+                }
+                e->attributes = calloc(e->attributeCount, sizeof(struct entityAttribute));
+                for(int i = 0; i < e->attributeCount; i++){
+                    struct entityAttribute new = {};
+                    new.key = readString(input->data, &offset);
+                    new.value = readBigEndianDouble(input->data, &offset);
+                    new.modifierCount = readVarInt(input->data, &offset);
+                    new.modifiers = calloc(new.modifierCount, sizeof(struct modifier));
+                    for(int n = 0; n < new.modifierCount; n++){
+                        struct modifier m = {};
+                        m.uid = readUUID(input->data, &offset);
+                        m.amount = readBigEndianDouble(input->data, &offset);
+                        m.operation = readByte(input->data, &offset);
+                        new.modifiers[n] = m;
+                    }
+                    e->attributes[i] = new;
+                }
+            }
+            break;
+        }
         case FEATURE_FLAGS:{
             int32_t count = readVarInt(input->data, &offset);
             output->featureFlags.flags = calloc(count, sizeof(identifier));
@@ -774,6 +918,30 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 output->featureFlags.flags[i] = readString(input->data, &offset);
             }
             output->featureFlags.count = count;
+            break;
+        }
+        case ENTITY_EFFECT:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                struct entityEffect* new = malloc(sizeof(struct entityEffect));
+                new->effectId = readVarInt(input->data, &offset);
+                new->amplifier = readByte(input->data, &offset);
+                new->duration = readVarInt(input->data, &offset);
+                new->flags = readByte(input->data, &offset);
+                new->factorDataPresent = readBool(input->data, &offset);
+                if(new->factorDataPresent){
+                    nbt_node* factorCodec = nbt_parse(input->data + offset, input->size - offset);
+                    new->factorData.paddingDuration = nbt_find_by_name(factorCodec, "padding_duration")->payload.tag_int;
+                    new->factorData.factorStart = nbt_find_by_name(factorCodec, "factor_start")->payload.tag_float;
+                    new->factorData.factorTarget = nbt_find_by_name(factorCodec, "factor_target")->payload.tag_float;
+                    new->factorData.factorCurrent = nbt_find_by_name(factorCodec, "factor_current")->payload.tag_float;
+                    new->factorData.effectChangedTimestamp = nbt_find_by_name(factorCodec, "effect_changed_timestamp")->payload.tag_int;
+                    new->factorData.factorPreviousFrame = nbt_find_by_name(factorCodec, "factor_previous_frame")->payload.tag_float;
+                    new->factorData.hadEffectLastTick = (bool)nbt_find_by_name(factorCodec, "had_effect_last_tick")->payload.tag_byte;
+                    nbt_free(factorCodec);
+                }
+            }
             break;
         }
         case UPDATE_RECIPES:{
@@ -799,7 +967,7 @@ struct gamestate initGamestate(){
     memset(&g, 0, sizeof(struct gamestate));
     g.entityList = initList();
     g.chunks = initList();
-    g.playerInfo.players = initList();
+    g.playerInfo = initList();
     return g;
 }
 
@@ -825,7 +993,7 @@ void freeGamestate(struct gamestate* g){
     free(g->pendingChanges.array);
     free(g->player.inventory.slots);
     free(g->player.inventory.title);
-    freeList(g->playerInfo.players, (void(*)(void*))freeGenericPlayer);
+    freeList(g->playerInfo, (void(*)(void*))freeGenericPlayer);
     nbt_free(g->registryCodec);
     free(g->serverData.icon.bytes);
     free(g->serverData.MOTD);
@@ -1037,7 +1205,8 @@ static struct entityMetadata* parseEntityMetadata(byte* input, int* offset){
             break;
         }
         case PARTICLE:{
-            //TODO: figure out how does a particle look like
+            //MAYBE implement the rest of the particle data writing
+            new->value.PARTICLE = readByte(input, offset);
             break;
         }
         case VILLAGER_DATA:{
@@ -1224,21 +1393,21 @@ void freeVersionStruct(struct gameVersion* version){
     }
 }
 
-void freeBlockEntity(blockEntity* e){
+static void freeBlockEntity(blockEntity* e){
     if(e != NULL){
         nbt_free(e->tag);
         free(e);
     }
 }
 
-void freeBlock(block* b){
+static void freeBlock(block* b){
     if(b != NULL){
         freeBlockEntity(b->entity);
         free(b);
     }
 }
 
-void freeProperty(struct property* p){
+static void freeProperty(struct property* p){
     if(p != NULL){
         free(p->name);
         free(p->signature);
@@ -1247,7 +1416,7 @@ void freeProperty(struct property* p){
     }
 }
 
-void freeGenericPlayer(struct genericPlayer* p){
+static void freeGenericPlayer(struct genericPlayer* p){
     if(p != NULL){
         free(p->displayName);
         free(p->name);
@@ -1264,7 +1433,7 @@ void* mCpyAlloc(const void* value, size_t size){
 
 static chunk* getChunk(const struct gamestate* current, int32_t chunkX, int32_t chunkZ){
     chunk* res = NULL;
-    foreachListElement(current->chunks){
+    foreachListElement(current->chunks, el){
         chunk* c = el->value;
         if(c != NULL && c->x == chunkX && c->z == chunkZ){
             res = c;
@@ -1277,12 +1446,32 @@ static chunk* getChunk(const struct gamestate* current, int32_t chunkX, int32_t 
 entity* initEntity(){
     entity* new = calloc(1, sizeof(entity));
     new->metadata = initList();
+    new->effects = initList();
     return new;
 }
 
-void freeEntity(entity* e){
+static void freeEntity(entity* e){
     if(e != NULL){
         freeList(e->metadata, free);
+        for(int i = 0; i < e->attributeCount; i++){
+            freeEntityAttribute(e->attributes + i);
+        }
+        free(e->attributes);
         free(e);
     }
+}
+
+static inline void updateEntityPosition(entity* e, const byte* buff, int* index){
+    e->x += (double)deltaShortFormula(readBigEndianShort(buff, index));
+    e->y += (double)deltaShortFormula(readBigEndianShort(buff, index));
+    e->z += (double)deltaShortFormula(readBigEndianShort(buff, index));
+}
+
+static inline void updateEntityRotation(entity* e, const byte* buff, int* index){
+    e->yaw = readByte(buff, index);
+    e->pitch = readByte(buff, index);
+}
+
+static void freeEntityAttribute(struct entityAttribute* eA){
+    free(eA->modifiers);
 }

@@ -12,6 +12,8 @@
 
 //https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/tree/master/version
 
+#define MAX_ENT_SLOT_COUNT 128
+
 //Types
 
 struct palette{
@@ -102,7 +104,7 @@ struct entityMetadata{
         int32_t BLOCK_ID;
         int32_t OPT_BLOCK_ID;
         nbt_node* NBT;
-        void* PARTICLE;
+        byte PARTICLE;
         int32_t VILLAGER_DATA;
         int32_t OPT_VAR_INT;
         int32_t POSE;
@@ -120,6 +122,45 @@ struct entityMetadata{
     } value;
 };
 
+//Attribute modifier operation
+typedef enum modifierOperation{
+    ADD_SUBTRACT_AMT = 0,
+    ADD_SUBTRACT_PRC = 1,
+    MULTIPLY_BY_PRC = 2
+} modifierOperation_t;
+
+//Modifier applied to entityAttribute
+struct modifier{
+    UUID_t uid;
+    double amount;
+    modifierOperation_t operation;
+};
+
+//An entity attribute, don't confuse with metadata
+struct entityAttribute{
+    identifier key;
+    double value;
+    size_t modifierCount;
+    struct modifier* modifiers;
+};
+
+struct entityEffect{
+    int32_t effectId;
+    byte amplifier;
+    int32_t duration;
+    byte flags;
+    bool factorDataPresent;
+    struct factorData{ //storing a whole nbt tag here would be wasteful;
+        int32_t paddingDuration;
+        float factorStart;
+        float factorTarget;
+        float factorCurrent;
+        int32_t effectChangedTimestamp;
+        float factorPreviousFrame;
+        bool hadEffectLastTick;
+    } factorData;
+};
+
 //Minecraft entity
 typedef struct entity entity;
 
@@ -133,14 +174,19 @@ struct entity{
     angle_t pitch;
     angle_t yaw;
     angle_t headYaw;
+    bool onGround;
     int32_t data;
-    int16_t velocityX;
-    int16_t velocityY;
-    int16_t velocityZ;
+    float velocityX;
+    float velocityY;
+    float velocityZ;
     uint8_t animation;
     byte status;
     listHead* metadata;
     entity* linked; //The entity holding this entity
+    struct entityAttribute* attributes;
+    size_t attributeCount;
+    slot items[MAX_ENT_SLOT_COUNT]; //MAYBE optimize the storage for items of entities
+    listHead* effects;
 };
 
 typedef enum block_faces{
@@ -214,13 +260,14 @@ typedef enum difficulty_levels{
     HARD = 3
 } difficulty_t;
 
-//A generic property for tying name->value
+//A generic property for tying player properties
 struct property{
     char* name;
     char* value;
     char* signature;
 };
 
+//Predominately just player info
 struct genericPlayer{
     char* name;
     UUID_t id;
@@ -255,6 +302,12 @@ struct gamestate{
         float flyingSpeed;
         float fovModifier;
         chunk* currentChunk;
+        float health; //?->20
+        uint8_t food; //0<->20
+        float saturation; //0<->5
+        float experienceBar; //0<->1
+        int32_t totalExperience;
+        int32_t level;
     } player;
     int64_t worldAge;
     int64_t timeOfDay;
@@ -319,10 +372,7 @@ struct gamestate{
         byteArray icon;
         bool secureChat;
     } serverData;
-    struct player_info{ //the kind of data you expect to see on the player list
-        int32_t number;
-        listHead* players;
-    } playerInfo;
+    listHead* playerInfo;
     struct default_spawn_position{
         position location;
         float angle;
@@ -396,15 +446,5 @@ struct gameVersion* createVersionStruct(const char* versionJSON, const char* bio
  @brief Frees a previously created version struct
 */
 void freeVersionStruct(struct gameVersion* version);
-
-/*!
- @brief Frees a block
-*/
-void freeBlock(block* b);
-
-/*!
- @brief Frees a generic player struct
-*/
-void freeGenericPlayer(struct genericPlayer* p);
 
 #endif

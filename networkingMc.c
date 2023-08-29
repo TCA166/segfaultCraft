@@ -29,14 +29,7 @@
  @param socketFd the socket file descriptor
  @return the byteArray stored within the socket, or a NULL byteArray on error or EOF
 */
-byteArray readSocket(int socketFd);
-
-/*!
- @brief Tries getting a byteArray from a socket until error or timeout
- @param socketFd the socket file descriptor
- @return the packet data alongside the length of the data as byteArray, or a NULL byteArray on error or timeout
-*/
-byteArray getPacketBytes(int socketFd);
+static byteArray readSocket(int socketFd);
 
 /*!
  @brief Parses the raw packet data into a nice struct
@@ -44,7 +37,7 @@ byteArray getPacketBytes(int socketFd);
  @param compression the established compression level
  @return the packet struct or a nullPacket to indicate error
 */
-packet parsePacket(byteArray* dataArray, int compression);
+static packet parsePacket(const byteArray* dataArray, int compression);
 
 /*Socket reading note
 The process of getting a valid packet goes like this:
@@ -114,21 +107,7 @@ ssize_t sendPacket(int socketFd, int size, int packetId, const byte* data, int c
     }
 }
 
-byteArray getPacketBytes(int socketFd){
-    time_t start = clock();
-    byteArray packet = nullByteArray;
-    while(packet.bytes == NULL){
-        packet = readSocket(socketFd);
-        time_t now = clock();
-        if(now - start > TCP_TIMEOUT){
-            errno = ETIMEDOUT;
-            return packet;
-        }
-    }
-    return packet;
-}
-
-byteArray readSocket(int socketFd){
+static byteArray readSocket(int socketFd){
     byteArray result = nullByteArray;
     int size = 0;
     int position = 0;
@@ -158,20 +137,18 @@ byteArray readSocket(int socketFd){
     return result;
 }
 
-packet parsePacket(byteArray* dataArray, int compression){
+static packet parsePacket(const byteArray* dataArray, int compression){
     packet result = nullPacket;
     int index = 0;
     bool alloc = false;
     byte* data = dataArray->bytes;
-    if(compression > -1){
+    if(compression > NO_COMPRESSION){
         uLongf dataLength = (uLongf)readVarInt(data, &index);
         int compressedLen = dataArray->len - index;
-        if(dataLength >= compression){
-            byte* compressed = (byte*)data + index;
-            byte* uncompressed = NULL;
-            uncompressed = calloc(dataLength, sizeof(byte));
+        if(dataLength != 0){
+            byte* uncompressed = calloc(dataLength, sizeof(byte));
             alloc = true;
-            if(uncompress(uncompressed, &dataLength, compressed, compressedLen) != Z_OK){
+            if(uncompress(uncompressed, &dataLength, data + index, compressedLen) != Z_OK){
                 free(uncompressed);
                 return nullPacket;
             } 
@@ -187,8 +164,9 @@ packet parsePacket(byteArray* dataArray, int compression){
         result.size = dataArray->len;
     }
     result.packetId = readVarInt(data, &index);
-    result.data = calloc(result.size - 1, sizeof(byte));
-    memcpy(result.data, data + index, result.size - 1);
+    result.size -= 1; //packetId will should take up a byte at most
+    result.data = calloc(result.size, sizeof(byte));
+    memcpy(result.data, data + index, result.size);
     if(alloc){ //we discard the const since actually we no longer have a const value
         free((byte*)data);
     }
@@ -204,12 +182,7 @@ int64_t pingPong(int socketFd){
         return -1;
     }
     //pong
-    byteArray input = getPacketBytes(socketFd);
-    if(input.bytes == NULL){
-        return -2;
-    }
-    packet pong = parsePacket(&input, NO_COMPRESSION);
-    free(input.bytes);
+    packet pong = getPacket(socketFd, NO_COMPRESSION);
     if(pong.data == NULL || pong.packetId != PING_RESPONSE){
         return -3;
     }
@@ -246,7 +219,7 @@ ssize_t startLogin(int socketFd, const char* name, const UUID_t* player){
 }
 
 packet getPacket(int socketFd, int compression){
-    byteArray newPacket = getPacketBytes(socketFd);;
+    byteArray newPacket = readSocket(socketFd);
     if(newPacket.bytes == NULL){
         return nullPacket;
     }

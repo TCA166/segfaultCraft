@@ -287,7 +287,7 @@ slot readSlot(const byte* buff, int* index){
     if(result.present){
         result.id = readVarInt(buff, index);
         result.count = readByte(buff, index);
-        size_t sz = nbtSize(buff + *index, false);
+        size_t sz = nbtSize(buff + *index, false); //FIXME invalid sz returned here sometimes
         result.NBT = nbt_parse(buff + *index, sz);
         *index += sz;
     }
