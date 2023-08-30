@@ -199,11 +199,11 @@ size_t nbtSize(const byte* buff, bool inCompound){
     int res = 0;
     //each nbt tag starts with a byte indicating the type
     byte type = readByte(buff, &res);
-    if(type > TAG_LONG_ARRAY || (type == TAG_INVALID && !inCompound)){
+    if(type > TAG_LONG_ARRAY || type == TAG_INVALID){
         return 0; //something went very wrong
     }
     //and then tags other than TAG_END if in compound tag have always 2 bytes indicating name length
-    if((inCompound || type == TAG_COMPOUND) && type != TAG_INVALID){
+    if(inCompound || type == TAG_COMPOUND){
         res += readBigEndianShort(buff, &res); //by doing this trick we increment res twice. Once by passing the pointer(by short size) and once by incrementing by returned value
     }
     //Then we just continue parsing
@@ -246,7 +246,7 @@ static inline size_t tagSize(const byte* buff, byte type){
             byte type = readByte(buff, &res);
             int32_t num = readBigEndianInt(buff, &res);
             if(num <= 0){ //if the list is empty we need to increment the size
-                res += 1; //for whatever reason empty lists AREN'T FULLY EMPTY
+                //res += 1; //for whatever reason empty lists AREN'T FULLY EMPTY
                 //AND THE WORST PART IS I CANNOT DETECT REALISTICALLY HOW MUCH EMPTY BYTES ARE APPENDED 
             }
             else{
@@ -262,6 +262,7 @@ static inline size_t tagSize(const byte* buff, byte type){
                 const byte* el = buff + res;
                 size_t r = nbtSize(el, true);
                 if(r == 0){
+                    res++;
                     break;
                 }
                 else{
@@ -287,7 +288,7 @@ slot readSlot(const byte* buff, int* index){
     if(result.present){
         result.id = readVarInt(buff, index);
         result.count = readByte(buff, index);
-        size_t sz = nbtSize(buff + *index, false); //FIXME invalid sz returned here sometimes
+        size_t sz = nbtSize(buff + *index, false);
         result.NBT = nbt_parse(buff + *index, sz);
         *index += sz;
     }

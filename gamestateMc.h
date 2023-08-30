@@ -285,6 +285,8 @@ struct genericPlayer{
     } signatureData;
 };
 
+//MAYBE lists replaced with hashTables
+
 struct gamestate{
     struct player{ //data on our player
         int32_t entityId;
@@ -352,6 +354,8 @@ struct gamestate{
         int (*displayStats) (struct statistic* stats, size_t num);
         int (*worldEvent) (int32_t event, position location, int32_t data, bool disableRelativeVolume);
         int (*particleSpawn) (struct particle* new);
+        int (*resourcePackHandler) (char* url, char hash[40], bool forced, char* promptMessage);
+        int (*deathHandler) (char* message);
     } eventHandlers; 
     struct worldBorder{
         double X;
@@ -377,6 +381,7 @@ struct gamestate{
         position location;
         float angle;
     } defaultSpawnPosition;
+    bool combat;
 };
 
 //Struct that contains all necessary info that determine what game features are present in our game version

@@ -81,8 +81,9 @@ listEl* unlinkElement(listEl* el){
     }
     el->head = NULL;
     el->prev = NULL;
+    listEl* next = el->next;
     el->next = NULL;
-    return el->prev;
+    return next;
 }
 
 void freeListElement(listEl* el, bool freeValue){

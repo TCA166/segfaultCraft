@@ -677,13 +677,34 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 updateEntityRotation(e, input->data, &offset);
             }
             break;
-            break;
         }
         case PLAYER_ABILITIES:{
             output->player.flags = readByte(input->data, &offset);
             output->player.flyingSpeed = readBigEndianFloat(input->data, &offset);
             output->player.fovModifier = readBigEndianFloat(input->data, &offset);
             break;
+        }
+        case PLAYER_CHAT_MESSAGE:{
+            //TODO implement this alongside the rest of the chat system
+            break;
+        }
+        case END_COMBAT:{
+            output->combat = false;
+            break;
+        }
+        case ENTER_COMBAT:{
+            output->combat = true;
+            break;
+        }
+        case COMBAT_DEATH:{
+            int32_t id = readVarInt(input->data, &offset);
+            if(id != output->player.entityId){
+                //something went wrong
+                return -1;
+            }
+            char* message = readString(input->data, &offset);
+            event(output, deathHandler, message);
+            free(message);
         }
         case PLAYER_INFO_REMOVE:{
             int32_t num = readVarInt(input->data, &offset);
@@ -760,6 +781,58 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case UPDATE_RECIPE_BOOK:{
             //MAYBE
+            break;
+        }
+        case REMOVE_ENTITIES:{
+            int32_t num = readVarInt(input->data, &offset);
+            while(num > 0){
+                int32_t eid = readVarInt(input->data, &offset);
+                listEl* el = output->entityList->first;
+                while(el != NULL){
+                    listEl* current = el;
+                    el = el->next;
+                    if(((entity*)current->value)->id == eid){
+                        unlinkElement(current);
+                        freeEntity(current->value);
+                        freeListElement(current, false);
+                        break;
+                    }
+                    
+                }
+                num--;
+            }
+            break;
+        }
+        case REMOVE_ENTITY_EFFECT:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                int32_t effectId = readVarInt(input->data, &offset);
+                listEl* el = e->effects->first;
+                while(el != NULL){
+                    listEl* current = el;
+                    el = el->next;
+                    if(((struct entityEffect*)current->value)->effectId == effectId){
+                        unlinkElement(current);
+                        freeListElement(current, true);
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+        case RESOURCE_PACK:{
+            char* url = readString(input->data, &offset);
+            char* hash = readString(input->data, &offset);
+            bool forced = readBool(input->data, &offset);
+            char* promptMessage = NULL;
+            if(readBool(input->data, &offset)){
+                promptMessage = readString(input->data, &offset);
+            }
+            event(output, resourcePackHandler, url, hash, forced, promptMessage)
+            free(url);
+            free(hash);
+            free(promptMessage);
             break;
         }
         case SET_HEAD_ROTATION:{
@@ -887,8 +960,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 e->attributeCount = readVarInt(input->data, &offset);
                 if(e->attributes != NULL){
                     for(int i = 0; i < e->attributeCount; i++){
-                        free(e->attributes[i].key);
-                        free(e->attributes[i].modifiers);
+                        freeEntityAttribute(e->attributes + i);
                     }
                     free(e->attributes);
                 }
@@ -1456,7 +1528,11 @@ static void freeEntity(entity* e){
         for(int i = 0; i < e->attributeCount; i++){
             freeEntityAttribute(e->attributes + i);
         }
+        freeList(e->effects, free);
         free(e->attributes);
+        for(int i = 0; i < MAX_ENT_SLOT_COUNT; i++){
+            nbt_free(e->items[i].NBT);
+        }
         free(e);
     }
 }
@@ -1473,5 +1549,6 @@ static inline void updateEntityRotation(entity* e, const byte* buff, int* index)
 }
 
 static void freeEntityAttribute(struct entityAttribute* eA){
+    free(eA->key);
     free(eA->modifiers);
 }

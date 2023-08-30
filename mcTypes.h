@@ -293,7 +293,7 @@ double readBigEndianDouble(const byte* buff, int* index);
  @brief Calculates the size of the nbt tag in the buffer
  @param buff the buffer that contains the nbt tag
  @param inCompound If the tag is contained withing a compound tag. false unless you know what you are doing
- @return the size of the nbt tag in bytes
+ @return the size of the nbt tag in bytes, or 0 for error
 */
 size_t nbtSize(const byte* buff, bool inCompound);
 

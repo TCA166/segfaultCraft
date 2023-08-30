@@ -59,7 +59,7 @@ listEl* removeElement(listHead* list, unsigned int index);
 /*!
  @brief Unlinks the element from the list
  @param el the element to unlist
- @return the previous element to the removed one
+ @return the next element to the removed one
 */
 listEl* unlinkElement(listEl* el);
 
