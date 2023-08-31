@@ -19,7 +19,7 @@ static int getEntityId(const struct gameVersion* version, const char* name);
  @brief Gets the double pointer to the block with the given position within the gamestate
  @param current the currently worked on gamestate
  @param pos the block position
- @return NULL or the double pointer
+ @return NULL in case chunk is not there or the double pointer, which may point to NULL
 */
 static block** getBlock(struct gamestate* current, position pos);
 
@@ -91,6 +91,8 @@ static void freeEntityAttribute(struct entityAttribute* eA);
 
 static void freeContainer(struct container* c);
 
+static block* initBlock(int32_t x, int32_t y, int32_t z);
+
 //Fires an event stored within gamestate
 #define event(gamestate, name, ...) \
     if(gamestate->eventHandlers.name != NULL){ \
@@ -121,6 +123,11 @@ static void freeContainer(struct container* c);
 #define blockPaletteThreshold 9
 
 #define mcAirClass "AirBlock"
+
+#define NaN 0.0 / 0.0
+
+#define KEEP_ATTRIBUTES 0x01
+#define KEEP_METADATA 0x02
 
 /*Minecraft does this sometimes where they will get a value, and in order to limit it they will multiply it so that the desired maximum value == SHORT_MAX
 Call me cynical but I would use a int8 for such a thing*/
@@ -217,14 +224,19 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
         }
         case ACKNOWLEDGE_BLOCK_CHANGE:{
             int32_t sequenceChange = readVarInt(input->data, &offset);
-            for(int i = 0; i < output->pendingChanges.len; i++){
-                struct blockChange* change = output->pendingChanges.array + i;
+            listEl* el = output->pendingChanges->first;
+            while(el != NULL){
+                listEl* current = el;
+                el = el->next;
+                struct blockChange* change = current->value;
                 if(change->sequenceId == sequenceChange){
+                    unlinkElement(current);
+                    freeListElement(current, false);
                     //TODO: handle rest of the cases
                     if(change->status == FINISHED_DIGGING){
                         block** b = getBlock(output, change->location);
                         if(b != NULL){
-                            free(*b);
+                            freeBlock(*b);
                             *b = NULL;
                         }
                     }
@@ -237,7 +249,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             position location = (position)readBigEndianLong(input->data, &offset);
             byte stage = readByte(input->data, &offset);
             block** b = getBlock(output, location);
-            if(b != NULL){
+            if(b != NULL && *b != NULL){ //Air cannot have a destroy stage
                 if(stage < 10){
                     (*b)->stage = stage;
                 }
@@ -255,7 +267,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             size_t sz = nbtSize(input->data + offset, false);
             bEnt->tag = nbt_parse(input->data + offset, sz);
             block** b = getBlock(output, bEnt->location);
-            if(b != NULL){
+            if(b != NULL && *b != NULL){ //Air cannot have a block entity
                 (*b)->entity = bEnt;
             }
             break;
@@ -264,7 +276,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             position location = (position)readBigEndianLong(input->data, &offset);
             uint16_t animationData = readBigEndianShort(input->data, &offset);
             block** b = getBlock(output, location);
-            if(b != NULL){
+            if(b != NULL && *b != NULL){ //air doesn't do actions i think
                 (*b)->animationData = animationData;
                 event(output, blockActionHandler, *b)
             }
@@ -275,6 +287,10 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             int32_t blockId = readVarInt(input->data, &offset);
             block** b = getBlock(output, location);
             if(b != NULL){
+                //air can get updated
+                if(*b == NULL){
+                    *b = initBlock(positionX(location), positionY(location), positionZ(location));
+                }
                 (*b)->type = version->blockTypes.palette[blockId];
             }
             break;
@@ -295,14 +311,16 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 int32_t chunkZ = readBigEndianInt(input->data, &offset);
                 int32_t limit = readVarInt(input->data, &offset) + offset;
                 chunk* ourChunk = getChunk(output, chunkX, chunkZ);
-                int chunkOffset = 0;
-                for(int i = 0; i < 24; i++){
-                    if(chunkOffset >= limit){
-                        break;
+                if(ourChunk != NULL){
+                    int chunkOffset = 0;
+                    for(int i = 0; i < 24; i++){
+                        if(chunkOffset >= limit){
+                            break;
+                        }
+                        struct section* s = ourChunk->sections + i;
+                        palettedContainer biomes = readPalettedContainer(input->data, &offset, biomePaletteLowest, biomePaletteThreshold, version->biomes.sz);
+                        transplantBiomes(s, biomes, version)
                     }
-                    struct section* s = ourChunk->sections + i;
-                    palettedContainer biomes = readPalettedContainer(input->data, &offset, biomePaletteLowest, biomePaletteThreshold, version->biomes.sz);
-                    transplantBiomes(s, biomes, version)
                 }
                 num--;
             }
@@ -396,13 +414,15 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             int32_t sourceCause = readVarInt(input->data, &offset);
             int32_t sourceDirect = readVarInt(input->data, &offset);
             bool hasPosition = readBool(input->data, &offset);
-            double sourceX, sourceY, sourceZ; //do not read unless hasPosition == true
+            double sourceX = NaN;
+            double sourceY = NaN;
+            double sourceZ = NaN;
             if(hasPosition){
                 sourceX = readBigEndianDouble(input->data, &offset);
                 sourceY = readBigEndianDouble(input->data, &offset);
                 sourceZ = readBigEndianDouble(input->data, &offset);
             }
-            event(output, damageHandler, entityId, sourceType, sourceCause, sourceDirect, hasPosition, sourceX, sourceY, sourceZ)
+            event(output, damageHandler, entityId, sourceType, sourceCause, sourceDirect, sourceX, sourceY, sourceZ)
             break;
         }
         case DELETE_MESSAGE:{
@@ -438,7 +458,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 int8_t Yoff = (int8_t)readByte(input->data, &offset);   
                 int8_t Zoff = (int8_t)readByte(input->data, &offset);
                 block** b = getBlock(output, toPosition((X + Xoff), (Y + Yoff), (Z + Zoff)));
-                if(*b != NULL){
+                if(b != NULL && *b != NULL){
                     free(*b);
                     *b = NULL;
                 }
@@ -507,7 +527,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case CHUNK_DATA_AND_UPDATE_LIGHT:{
-            chunk* newChunk = malloc(sizeof(chunk));
+            chunk* newChunk = calloc(1, sizeof(chunk));
             newChunk->x = readBigEndianInt(input->data, &offset);
             newChunk->z = readBigEndianInt(input->data, &offset);
             //we skip the nbt tag
@@ -526,6 +546,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 s.nonAir = readBigEndianShort(input->data, &offset);
                 palettedContainer blocks = readPalettedContainer(input->data, &offset, blockPaletteLowest, blockPaletteThreshold, version->blockStates.sz);
                 if(blocks.palette == NULL && blocks.states == NULL){
+                    freeChunk(newChunk);
                     return -2;
                 }
                 //and now foreach block
@@ -548,15 +569,12 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     block* newBlock = NULL;
                     if(!isAir(version, type)){
                         //initialize the new block
-                        newBlock = malloc(sizeof(block));
+                        newBlock = initBlock(x, y, z);
                         newBlock->entity = NULL;
                         newBlock->animationData = 0;
                         newBlock->stage = 0;
                         newBlock->state = id;
                         newBlock->type = type;
-                        newBlock->x = x;
-                        newBlock->y = y;
-                        newBlock->z = z;
                         newBlock->state = id;
                     }
                     s.blocks[x][y][z] = newBlock;
@@ -879,6 +897,19 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             output->debug = readBool(input->data, &offset);
             output->flat = readBool(input->data, &offset);
             byte flags = readByte(input->data, &offset);
+            if(!(flags & KEEP_ATTRIBUTES)){ //Keep attributes
+                output->player.playerEntity->attributeCount = 0;
+                free(output->player.playerEntity->attributes);
+                output->player.playerEntity->attributes = NULL;
+            }
+            if(!(flags & KEEP_METADATA)){ //Keep metadata
+                listEl* el = output->player.playerEntity->metadata->first;
+                while(el != NULL){
+                    listEl* current = el;
+                    el = el->next;
+                    freeListElement(current, true);
+                }
+            }
             output->deathLocation = readBool(input->data, &offset);
             if(output->deathLocation){
                 free(output->deathDimension);
@@ -913,10 +944,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     int8_t blockX = (int8_t)(createLongMask(9, 4) & ourLong);
                     int32_t index = (int32_t)(ourLong >> 12);
                     if(s->blocks[blockX][blockY][blockZ] == NULL){
-                        block* b = calloc(1, sizeof(block));
-                        b->x = blockX;
-                        b->y = blockY;
-                        b->z = blockZ;
+                        block* b = initBlock(blockX, blockY, blockZ);
                         s->blocks[blockX][blockY][blockZ] = b;
                     }
                     s->blocks[blockX][blockY][blockZ]->type = version->blockStates.palette[index];
@@ -1238,13 +1266,13 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             int32_t eid = readVarInt(input->data, &offset);
             entity* e = getEntity(output, eid);
             if(e != NULL){
-                e->attributeCount = readVarInt(input->data, &offset);
                 if(e->attributes != NULL){
                     for(int i = 0; i < e->attributeCount; i++){
                         freeEntityAttribute(e->attributes + i);
                     }
                     free(e->attributes);
                 }
+                e->attributeCount = readVarInt(input->data, &offset);
                 e->attributes = calloc(e->attributeCount, sizeof(struct entityAttribute));
                 for(int i = 0; i < e->attributeCount; i++){
                     struct entityAttribute new = {};
@@ -1294,6 +1322,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     new->factorData.hadEffectLastTick = (bool)nbt_find_by_name(factorCodec, "had_effect_last_tick")->payload.tag_byte;
                     nbt_free(factorCodec);
                 }
+                addElement(e->effects, new);
             }
             break;
         }
@@ -1323,6 +1352,7 @@ struct gamestate initGamestate(){
     g.playerInfo = initList();
     g.queries = initList();
     g.player.playerEntity = initEntity();
+    g.pendingChanges = initList();
     return g;
 }
 
@@ -1345,7 +1375,7 @@ void freeGamestate(struct gamestate* g){
         free(g->openContainer->title);
     }
     free(g->openContainer);
-    free(g->pendingChanges.array);
+    freeList(g->pendingChanges, free);
     free(g->player.inventory.slots);
     free(g->player.inventory.title);
     freeList(g->playerInfo, (void(*)(void*))freeGenericPlayer);
@@ -1354,6 +1384,7 @@ void freeGamestate(struct gamestate* g){
     free(g->serverData.MOTD);
     freeList(g->queries, free);
     freeEntity(g->player.playerEntity);
+    freeList(g->pendingChanges, free);
 }
 
 //O(n) complexity, but still should be fast-ish with just 1000 elements
@@ -1664,7 +1695,13 @@ struct gameVersion* createVersionStruct(const char* versionJSON, const char* bio
         }
         //downsize the array if necessary
         if(thisVersion->entities.sz != num){
-            thisVersion->entities.palette = realloc(thisVersion->entities.palette, num * sizeof(identifier));
+            if(num != 0){
+                thisVersion->entities.palette = realloc(thisVersion->entities.palette, num * sizeof(identifier));
+            }
+            else{
+                free(thisVersion->entities.palette);
+                thisVersion->entities.palette = NULL;
+            }
             thisVersion->entities.sz = num;
         }
     }   
@@ -1850,4 +1887,12 @@ static void freeContainer(struct container* c){
         free(c->title);
         free(c);
     }
+}
+
+static block* initBlock(int32_t x, int32_t y, int32_t z){
+    block* new = calloc(1, sizeof(block));
+    new->x = x;
+    new->y = y;
+    new->z = z;
+    return new;
 }

@@ -79,6 +79,7 @@ listEl* unlinkElement(listEl* el){
     else{
         el->head->last = el->prev; //else we need to update the last pointer
     }
+    el->head->len--;
     el->head = NULL;
     el->prev = NULL;
     listEl* next = el->next;

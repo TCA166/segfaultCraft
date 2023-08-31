@@ -231,9 +231,9 @@ struct container{
 //I am not certain if a list is the best choice for storing chunks, but it handles deletion and appending the best out of all the things i can think of
 
 typedef struct block{
-    double x;
-    double y;
-    double z;
+    int32_t x;
+    int32_t y;
+    int32_t z;
     identifier type;
     int32_t state;
     byte stage;
@@ -344,11 +344,7 @@ struct gamestate{
     int portalCooldown;
     bool loginPlay; //if we can send packets back during play
     listHead* entityList;
-    //TODO change to list
-    struct pendingChanges{ //Array of changes that have been sent to the server, but haven't been acknowledged by the server
-        struct blockChange* array;
-        size_t len;
-    } pendingChanges;
+    listHead* pendingChanges;
     listHead* queries; //list of nbt tag queries
     listHead* chunks;
     difficulty_t difficulty;
@@ -361,7 +357,7 @@ struct gamestate{
         int (*entityEventHandler) (entity* e); //function for handling entity events
         int (*blockActionHandler) (block* b); //function for handling blockActions
         int (*containerHandler) (struct container* cont); //function for handling container updates. Sent when open container is changed
-        int (*damageHandler) (int32_t eid, int32_t sourceType, int32_t sourceCause, int32_t sourceDirect, bool hasPosition, double sourceX, double sourceY, double sourceZ); //function for handling the damage event
+        int (*damageHandler) (int32_t eid, int32_t sourceType, int32_t sourceCause, int32_t sourceDirect, double sourceX, double sourceY, double sourceZ); //function for handling the damage event
         int (*explosionHandler) (double X, double Y, double Z, float strength); //function for handling explosions
         int (*generic[16]) (float value); //array of function pointers that act as generic event handlers
         int (*hurtAnimationHandler) (entity* e, float yaw); //fired when an entity receives some damage
