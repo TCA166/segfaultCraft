@@ -189,6 +189,7 @@ struct entity{
     listHead* effects;
     size_t passengerCount;
     entity** passengers;
+    nbt_node* tag;
 };
 
 typedef enum block_faces{
@@ -288,6 +289,12 @@ struct genericPlayer{
     } signatureData;
 };
 
+struct nbtQuery{
+    int32_t id;
+    blockEntity* blockEntity;
+    entity* e;
+};
+
 //MAYBE lists replaced with hashTables
 
 struct gamestate{
@@ -314,6 +321,7 @@ struct gamestate{
         int32_t totalExperience;
         int32_t level;
         entity* cameraEntity;
+        entity* playerEntity;
     } player;
     int64_t worldAge;
     int64_t timeOfDay;
@@ -336,15 +344,18 @@ struct gamestate{
     int portalCooldown;
     bool loginPlay; //if we can send packets back during play
     listHead* entityList;
+    //TODO change to list
     struct pendingChanges{ //Array of changes that have been sent to the server, but haven't been acknowledged by the server
         struct blockChange* array;
         size_t len;
     } pendingChanges;
+    listHead* queries; //list of nbt tag queries
     listHead* chunks;
     difficulty_t difficulty;
     bool difficultyLocked;
     struct container* openContainer; //so in theory there can be more than one open container, but the vanilla client doesn't do that
     struct eventHandlers{ //Every event handler must return an int, with negative values indicating errors and set errno
+        //TODO make sure this 1) covers all necessary events 2) is "compressed" enough
         int (*spawnEntityHandler) (entity* e); //function for handling entity spawns
         int (*animationEntityHandler) (entity* e); //function for handling entity animations
         int (*entityEventHandler) (entity* e); //function for handling entity events
@@ -353,15 +364,18 @@ struct gamestate{
         int (*damageHandler) (int32_t eid, int32_t sourceType, int32_t sourceCause, int32_t sourceDirect, bool hasPosition, double sourceX, double sourceY, double sourceZ); //function for handling the damage event
         int (*explosionHandler) (double X, double Y, double Z, float strength); //function for handling explosions
         int (*generic[16]) (float value); //array of function pointers that act as generic event handlers
-        int (*hurtAnimationHandler) (entity* e, float yaw);
-        int (*worldBorder) (double oldDiameter);
-        int (*displayStats) (struct statistic* stats, size_t num);
-        int (*worldEvent) (int32_t event, position location, int32_t data, bool disableRelativeVolume);
-        int (*particleSpawn) (struct particle* new);
-        int (*resourcePackHandler) (char* url, char hash[40], bool forced, char* promptMessage);
-        int (*deathHandler) (char* message);
-        int (*openBook) (int32_t hand);
-        int (*openSignEditor) (position location, bool isFrontText);
+        int (*hurtAnimationHandler) (entity* e, float yaw); //fired when an entity receives some damage
+        int (*worldBorder) (double oldDiameter); //fired when the world border changes
+        int (*displayStats) (struct statistic* stats, size_t num); //fired when server returns stats
+        int (*worldEvent) (int32_t event, position location, int32_t data, bool disableRelativeVolume); //fired when a world event happens
+        int (*particleSpawn) (struct particle* new); //fired when a new particle should be spawned
+        int (*resourcePackHandler) (char* url, char hash[40], bool forced, char* promptMessage); //fired when the server informs about resource packs
+        int (*deathHandler) (char* message); //fired on player death
+        int (*openBook) (int32_t hand); //fired when book is opened
+        int (*openSignEditor) (position location, bool isFrontText); // fired when a sign editor should be opened
+        int (*soundEffect) (int32_t soundId, identifier soundName, float range, int32_t soundCategory, int32_t X, int32_t Y, int32_t Z, float volume, float pitch, int64_t seed); //fired when a sound should be played
+        int (*stopSound) (byte flags, int32_t source, identifier sound); //fired when a sound should stop
+        int (*pickupItem) (entity* collected, entity* collector, int32_t count); //fired when an item is picked up
     } eventHandlers; 
     struct worldBorder{
         double X;

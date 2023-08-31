@@ -91,6 +91,7 @@ static void freeEntityAttribute(struct entityAttribute* eA);
 
 static void freeContainer(struct container* c);
 
+//Fires an event stored within gamestate
 #define event(gamestate, name, ...) \
     if(gamestate->eventHandlers.name != NULL){ \
         int result = (*gamestate->eventHandlers.name)(__VA_ARGS__); \
@@ -1087,13 +1088,146 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             }
             break;
         }
+        case UPDATE_TEAMS:{
+            //TODO implement
+            break;
+        }
+        case UPDATE_SCORE:{
+            //TODO implement
+            break;
+        }
+        case SET_SIMULATION_DISTANCE:{
+            output->simulationDistance = readVarInt(input->data, &offset);
+            break;
+        }
+        case SET_SUBTITLE_TEXT:{
+            //TODO implement
+            break;
+        }
         case UPDATE_TIME:{
             output->worldAge = readBigEndianLong(input->data, &offset);
             output->timeOfDay = readBigEndianLong(input->data, &offset);
             break;
         }
+        case SET_TITLE_TEXT:{
+            //MAYBE what does this do?
+            break;
+        }
+        case SET_TITLE_ANIMATION_TIMES:{
+            //MAYBE
+            break;
+        }
+        case ENTITY_SOUND_EFFECT:{
+            int32_t soundId = readVarInt(input->data, &offset);
+            identifier soundName = NULL;
+            float range = -1;
+            if(soundId == 0){
+                soundName = readString(input->data, &offset);
+                if(readBool(input->data, &offset)){
+                    range = readBigEndianFloat(input->data, &offset);
+                }
+            }
+            int32_t soundCategory = readVarInt(input->data, &offset);
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                float volume = readBigEndianFloat(input->data, &offset);
+                float pitch = readBigEndianFloat(input->data, &offset);
+                int64_t seed = readBigEndianLong(input->data, &offset);
+                event(output, soundEffect, soundId, soundName, range, soundCategory, (int32_t)e->x, (int32_t)e->y, (int32_t)e->z, volume, pitch, seed)
+            }
+            free(soundName);
+            break;
+        }
+        case SOUND_EFFECT:{
+            int32_t soundId = readVarInt(input->data, &offset);
+            identifier soundName = NULL;
+            float range = -1;
+            if(soundId == 0){
+                soundName = readString(input->data, &offset);
+                if(readBool(input->data, &offset)){
+                    range = readBigEndianFloat(input->data, &offset);
+                }
+            }
+            int32_t soundCategory = readVarInt(input->data, &offset);
+            int32_t X = readBigEndianInt(input->data, &offset);
+            int32_t Y = readBigEndianInt(input->data, &offset);
+            int32_t Z = readBigEndianInt(input->data, &offset);
+            float volume = readBigEndianFloat(input->data, &offset);
+            float pitch = readBigEndianFloat(input->data, &offset);
+            int64_t seed = readBigEndianLong(input->data, &offset);
+            event(output, soundEffect, soundId, soundName, range, soundCategory, X, Y, Z, volume, pitch, seed)
+            free(soundName);
+            break;
+        }
+        case STOP_SOUND:{
+            byte flags = readByte(input->data, &offset);
+            int32_t source = -1;
+            if(flags & 0x1){
+                source = readVarInt(input->data, &offset);
+            }
+            identifier sound = NULL;
+            if(flags & 0x2){
+                sound = readString(input->data, &offset);
+            }
+            event(output, stopSound, flags, source, sound)
+            break;
+        }
         case SYSTEM_CHAT_MESSAGE:{
             //TODO: handle
+            break;
+        }
+        case SET_TAB_LIST_HEADER_AND_FOOTER:{
+            //MAYBE not implemented in notchian client
+            break;
+        }
+        case TAG_QUERY_RESPONSE:{
+            int32_t transactionId = readVarInt(input->data, &offset);
+            listEl* el = output->queries->first;
+            while(el != NULL){
+                listEl* current = el;
+                el = el->next;
+                struct nbtQuery* q = (struct nbtQuery*)current->value;
+                if(q->id == transactionId){
+                    unlinkElement(el);
+                    freeListElement(el, false);
+                    size_t nbtSz = nbtSize(input->data + offset, false);
+                    if(nbtSize > 0){
+                        nbt_node* tag = nbt_parse(input->data + offset, nbtSz);
+                        if(q->e != NULL){
+                            nbt_free(q->e->tag);
+                            q->e->tag = tag;
+                        }
+                        else if(q->blockEntity != NULL){
+                            nbt_free(q->blockEntity->tag);
+                            q->blockEntity->tag = tag;
+                        }
+                        else{
+                            nbt_free(tag);
+                        }
+                    }
+                }
+            }
+            break;
+        }
+        case PICKUP_ITEM:{
+            entity* collected = getEntity(output, readVarInt(input->data, &offset));
+            entity* collector = getEntity(output, readVarInt(input->data, &offset));
+            int32_t count = readVarInt(input->data, &offset);
+            event(output, pickupItem, collected, collector, count);
+            break;
+        }
+        case TELEPORT_ENTITY:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                e->x = readBigEndianDouble(input->data, &offset);
+                e->y = readBigEndianDouble(input->data, &offset);
+                e->z = readBigEndianDouble(input->data, &offset);
+                e->yaw = readByte(input->data, &offset);
+                e->pitch = readByte(input->data, &offset);
+                e->onGround = readBool(input->data, &offset);
+            }
             break;
         }
         case UPDATE_ADVANCEMENTS:{
@@ -1187,6 +1321,8 @@ struct gamestate initGamestate(){
     g.entityList = initList();
     g.chunks = initList();
     g.playerInfo = initList();
+    g.queries = initList();
+    g.player.playerEntity = initEntity();
     return g;
 }
 
@@ -1216,6 +1352,8 @@ void freeGamestate(struct gamestate* g){
     nbt_free(g->registryCodec);
     free(g->serverData.icon.bytes);
     free(g->serverData.MOTD);
+    freeList(g->queries, free);
+    freeEntity(g->player.playerEntity);
 }
 
 //O(n) complexity, but still should be fast-ish with just 1000 elements
@@ -1315,6 +1453,9 @@ int handleSynchronizePlayerPosition(packet* input, struct gamestate* output, int
 }
 
 static entity* getEntity(struct gamestate* current, int32_t eid){
+    if(eid == current->player.entityId){
+        return current->player.playerEntity;
+    }
     listEl* el = current->entityList->first;
     while(el != NULL){
         entity* e = (entity*)el->value;
