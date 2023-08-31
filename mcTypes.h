@@ -104,6 +104,8 @@ typedef struct palettedContainer{
 #define blockPaletteLowest 4
 #define biomePaletteLowest 1
 
+#define createLongMask(startBit, X) ((((uint64_t)1) << X) - 1) << startBit
+
 /*! 
  @brief Writes the given value to the buffer as VarInt
  @param buff pointer to an allocated buffer where the VarInt bytes shall be written to

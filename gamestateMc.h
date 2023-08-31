@@ -165,7 +165,7 @@ struct entityEffect{
 typedef struct entity entity;
 
 struct entity{
-    int id; 
+    int32_t id; 
     UUID_t uid; //Unique id of this entity
     uint8_t type; //id of entity class
     double x;
@@ -187,6 +187,8 @@ struct entity{
     size_t attributeCount;
     slot items[MAX_ENT_SLOT_COUNT]; //MAYBE optimize the storage for items of entities
     listHead* effects;
+    size_t passengerCount;
+    entity** passengers;
 };
 
 typedef enum block_faces{
@@ -254,6 +256,7 @@ typedef struct chunk{
 
 //Minecraft gameplay difficulty
 typedef enum difficulty_levels{
+    UNDEFINED = -1,
     PEACEFUL = 0,
     EASY = 1,
     NORMAL = 2,
@@ -290,8 +293,8 @@ struct genericPlayer{
 struct gamestate{
     struct player{ //data on our player
         int32_t entityId;
-        byte gamemode;
-        byte previousGamemode;
+        difficulty_t gamemode;
+        difficulty_t previousGamemode;
         byte heldSlot;
         struct container inventory;
         slot carried;
@@ -310,6 +313,7 @@ struct gamestate{
         float experienceBar; //0<->1
         int32_t totalExperience;
         int32_t level;
+        entity* cameraEntity;
     } player;
     int64_t worldAge;
     int64_t timeOfDay;
@@ -356,6 +360,8 @@ struct gamestate{
         int (*particleSpawn) (struct particle* new);
         int (*resourcePackHandler) (char* url, char hash[40], bool forced, char* promptMessage);
         int (*deathHandler) (char* message);
+        int (*openBook) (int32_t hand);
+        int (*openSignEditor) (position location, bool isFrontText);
     } eventHandlers; 
     struct worldBorder{
         double X;

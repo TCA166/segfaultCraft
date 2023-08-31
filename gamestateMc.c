@@ -89,6 +89,8 @@ static void freeGenericPlayer(struct genericPlayer* p);
 
 static void freeEntityAttribute(struct entityAttribute* eA);
 
+static void freeContainer(struct container* c);
+
 #define event(gamestate, name, ...) \
     if(gamestate->eventHandlers.name != NULL){ \
         int result = (*gamestate->eventHandlers.name)(__VA_ARGS__); \
@@ -678,6 +680,36 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             }
             break;
         }
+        case MOVE_VEHICLE:{
+            output->player.X = readBigEndianDouble(input->data, &offset);
+            output->player.Y = readBigEndianDouble(input->data, &offset);
+            output->player.Z = readBigEndianDouble(input->data, &offset);
+            output->player.yaw = readBigEndianFloat(input->data, &offset);
+            output->player.pitch = readBigEndianFloat(input->data, &offset);
+            break;
+        }
+        case OPEN_BOOK:{
+            event(output, openBook, readVarInt(input->data, &offset));
+            break;
+        }
+        case OPEN_SCREEN:{
+            freeContainer(output->openContainer);
+            struct container* new = calloc(1, sizeof(struct container)); 
+            new->id = readVarInt(input->data, &offset);
+            new->type = readVarInt(input->data, &offset);
+            new->title = readString(input->data, &offset);
+            output->openContainer = new;
+            event(output, containerHandler, new);
+            break;
+        }
+        case OPEN_SIGN_EDITOR:{
+            event(output, openSignEditor, readBigEndianLong(input->data, &offset), readBool(input->data, &offset))
+            break;
+        }
+        case PLACE_GHOST_RECIPE:{
+            //TODO handle
+            break;
+        }
         case PLAYER_ABILITIES:{
             output->player.flags = readByte(input->data, &offset);
             output->player.flyingSpeed = readBigEndianFloat(input->data, &offset);
@@ -835,12 +867,66 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             free(promptMessage);
             break;
         }
+        case RESPAWN:{
+            free(output->dimensionType);
+            output->dimensionType = readString(input->data, &offset);
+            free(output->dimensionName);
+            output->dimensionName = readString(input->data, &offset);
+            output->hashedSeed = readBigEndianLong(input->data, &offset);
+            output->player.gamemode = readByte(input->data, &offset);
+            output->player.previousGamemode = readByte(input->data, &offset);
+            output->debug = readBool(input->data, &offset);
+            output->flat = readBool(input->data, &offset);
+            byte flags = readByte(input->data, &offset);
+            output->deathLocation = readBool(input->data, &offset);
+            if(output->deathLocation){
+                free(output->deathDimension);
+                output->deathDimension = readString(input->data, &offset);
+                output->death = readBigEndianLong(input->data, &offset);
+            }
+            output->portalCooldown = readVarInt(input->data, &offset);
+            break;
+        }
         case SET_HEAD_ROTATION:{
             int32_t eid = readVarInt(input->data, &offset);
             entity* e = getEntity(output, eid);
             if(e != NULL){
                 e->headYaw = (angle_t)readByte(input->data, &offset); 
             }
+            break;
+        }
+        case UPDATE_SECTION_BLOCKS:{
+            int64_t sectionPos = readBigEndianLong(input->data, &offset);
+            //for some reason this position uses a different format
+            int32_t chunkX = sectionPos >> 42;
+            int32_t chunkZ = sectionPos << 22 >> 42;
+            int32_t sectionY = sectionPos << 44 >> 44;
+            chunk* c = getChunk(output, chunkX, chunkZ);
+            if(c != NULL){
+                struct section* s = c->sections + (sectionY + 4);
+                int32_t num = readVarInt(input->data, &offset);
+                while(num > 0){
+                    int64_t ourLong = readVarLong(input->data, &offset);
+                    int8_t blockY = (int8_t)(createLongMask(0, 4) & ourLong);
+                    int8_t blockZ = (int8_t)(createLongMask(5, 4) & ourLong);
+                    int8_t blockX = (int8_t)(createLongMask(9, 4) & ourLong);
+                    int32_t index = (int32_t)(ourLong >> 12);
+                    if(s->blocks[blockX][blockY][blockZ] == NULL){
+                        block* b = calloc(1, sizeof(block));
+                        b->x = blockX;
+                        b->y = blockY;
+                        b->z = blockZ;
+                        s->blocks[blockX][blockY][blockZ] = b;
+                    }
+                    s->blocks[blockX][blockY][blockZ]->type = version->blockStates.palette[index];
+                    s->blocks[blockX][blockY][blockZ]->state = index;
+                    num--;
+                }
+            }
+            break;
+        }
+        case SELECT_ADVANCEMENTS_TAB:{
+            //MAYBE 
             break;
         }
         case SERVER_DATA:{
@@ -851,6 +937,41 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 output->serverData.icon = readByteArray(input->data, &offset);
             }
             output->serverData.secureChat = readBool(input->data, &offset);
+            break;
+        }
+        case SET_ACTION_BAR_TEXT:{
+            //TODO
+            break;
+        }
+        case SET_BORDER_CENTER:{
+            output->worldBorder.X = readBigEndianDouble(input->data, &offset);
+            output->worldBorder.Z = readBigEndianDouble(input->data, &offset);
+            break;
+        }
+        case SET_BORDER_LERP_SIZE:{
+            double oldDiameter = readBigEndianDouble(input->data, &offset);
+            output->worldBorder.diameter = readBigEndianDouble(input->data, &offset);
+            output->worldBorder.speed = readVarLong(input->data, &offset);
+            event(output, worldBorder, oldDiameter)
+            break;
+        }
+        case SET_BORDER_SIZE:{
+            output->worldBorder.diameter = readBigEndianDouble(input->data, &offset);
+            break;
+        }
+        case SET_BORDER_WARNING_DELAY:{
+            output->worldBorder.warningT = readVarInt(input->data, &offset);
+            break;
+        }
+        case SET_BORDER_WARNING_DISTANCE:{
+            output->worldBorder.warning = readVarInt(input->data, &offset);
+            break;
+        }
+        case SET_CAMERA:{
+            entity* e = getEntity(output, readVarInt(input->data, &offset));
+            if(e != NULL){
+                output->player.cameraEntity = e;
+            }
             break;
         }
         case SET_HELD_ITEM:{
@@ -874,9 +995,17 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             }
             break;
         }
+        case SET_RENDER_DISTANCE:{
+            output->viewDistance = readVarInt(input->data, &offset);
+            break;
+        }
         case SET_DEFAULT_SPAWN_POSITION:{
             output->defaultSpawnPosition.location = readBigEndianLong(input->data, &offset);
             output->defaultSpawnPosition.angle = readBigEndianFloat(input->data, &offset);
+            break;
+        }
+        case DISPLAY_OBJECTIVE:{
+            //MAYBE implement?
             break;
         }
         case SET_ENTITY_METADATA:{
@@ -938,6 +1067,24 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             output->player.health = readBigEndianFloat(input->data, &offset);
             output->player.food = readVarInt(input->data, &offset);
             output->player.saturation = readBigEndianFloat(input->data, &offset);
+            break;
+        }
+        case UPDATE_OBJECTIVES:{
+            //MAYBE implement
+            break;
+        }
+        case SET_PASSENGERS:{
+            int32_t eid = readVarInt(input->data, &offset);
+            entity* e = getEntity(output, eid);
+            if(e != NULL){
+                size_t count = (size_t)readVarInt(input->data, &offset);
+                e->passengerCount = count;
+                e->passengers = calloc(count, sizeof(entity*));
+                for(int i = 0; i < count; i++){
+                    int32_t passengerEid = readVarInt(input->data, &offset);
+                    e->passengers[i] = getEntity(output, passengerEid);
+                }
+            }
             break;
         }
         case UPDATE_TIME:{
@@ -1551,4 +1698,15 @@ static inline void updateEntityRotation(entity* e, const byte* buff, int* index)
 static void freeEntityAttribute(struct entityAttribute* eA){
     free(eA->key);
     free(eA->modifiers);
+}
+
+static void freeContainer(struct container* c){
+    if(c != NULL){
+        for(int i = 0; i < c->slotCount; i++){
+            nbt_free(c->slots[i].NBT);
+        }
+        free(c->slots);
+        free(c->title);
+        free(c);
+    }
 }

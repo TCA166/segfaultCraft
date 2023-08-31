@@ -15,8 +15,6 @@
         index = &locIndex; \
     }
 
-#define createLongMask(startBit, X) ((((uint64_t)1) << X) - 1) << startBit
-
 static inline int16_t swapShort(int16_t s){
     return (s << 8) | ((s >> 8) & 0xFF);
 }
