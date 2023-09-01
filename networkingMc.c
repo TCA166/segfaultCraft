@@ -264,6 +264,7 @@ int loginState(int socketFd, packet* response, UUID_t* given, const char* userna
                     return -1;
                 }
                 //now we need to encrypt using AES/CFB8 stream cipher
+                //TODO implement
                 free(serverId);
                 free(publicKey.bytes);
                 free(verifyToken.bytes);

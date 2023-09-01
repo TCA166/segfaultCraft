@@ -87,9 +87,9 @@ listEl* unlinkElement(listEl* el){
     return next;
 }
 
-void freeListElement(listEl* el, bool freeValue){
-    if(freeValue){
-        free(el->value);
+void freeListElement(listEl* el, void (*freeValFunc)(void* val)){
+    if(freeValFunc != NULL){
+        (*freeValFunc)(el->value);
     }
     free(el);
 }

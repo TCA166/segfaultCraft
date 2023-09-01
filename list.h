@@ -69,6 +69,8 @@ listEl* unlinkElement(listEl* el);
 */
 listHead* initList();
 
+#define freeLikeFunction void(*)(void*)
+
 /*!
  @brief Frees the list
  @param list the list to be freed
@@ -79,8 +81,8 @@ void freeList(listHead* list, void (*freeValFunc)(void* val));
 /*!
  @brief Frees the list element
  @param el the list element to be freed
- @param freeValue should the value of this element be freed
+ @param freeValFunc the function that should be used to free this element's value
 */
-void freeListElement(listEl* el, bool freeValue);
+void freeListElement(listEl* el, void (*freeValFunc)(void* val));
 
 #endif

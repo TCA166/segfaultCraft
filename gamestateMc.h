@@ -295,6 +295,15 @@ struct nbtQuery{
     entity* e;
 };
 
+struct bossBar{
+    UUID_t barId;
+    char* title;
+    float health;
+    int32_t color;
+    int32_t division;
+    byte flags;
+};
+
 //MAYBE lists replaced with hashTables
 
 struct gamestate{
@@ -398,6 +407,8 @@ struct gamestate{
         float angle;
     } defaultSpawnPosition;
     bool combat;
+    listHead* bossBars;
+    char* subtitleText;
 };
 
 //Struct that contains all necessary info that determine what game features are present in our game version

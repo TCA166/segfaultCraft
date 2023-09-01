@@ -93,6 +93,8 @@ static void freeContainer(struct container* c);
 
 static block* initBlock(int32_t x, int32_t y, int32_t z);
 
+static void freeBossBar(struct bossBar* bar);
+
 //Fires an event stored within gamestate
 #define event(gamestate, name, ...) \
     if(gamestate->eventHandlers.name != NULL){ \
@@ -128,6 +130,15 @@ static block* initBlock(int32_t x, int32_t y, int32_t z);
 
 #define KEEP_ATTRIBUTES 0x01
 #define KEEP_METADATA 0x02
+
+enum bossBarActions{
+    ADD_BOSSBAR = 0,
+    REMOVE_BOSSBAR = 1,
+    UPDATE_HEALTH = 2,
+    UPDATE_TITLE = 3,
+    UPDATE_STYLE = 4,
+    UPDATE_FLAGS = 5
+};
 
 /*Minecraft does this sometimes where they will get a value, and in order to limit it they will multiply it so that the desired maximum value == SHORT_MAX
 Call me cynical but I would use a int8 for such a thing*/
@@ -231,7 +242,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 struct blockChange* change = current->value;
                 if(change->sequenceId == sequenceChange){
                     unlinkElement(current);
-                    freeListElement(current, false);
+                    freeListElement(current, free);
                     //TODO: handle rest of the cases
                     if(change->status == FINISHED_DIGGING){
                         block** b = getBlock(output, change->location);
@@ -296,7 +307,53 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case BOSS_BAR:{
-            //TODO: implement this
+            UUID_t id = readUUID(input->data, &offset);
+            int32_t action = readVarInt(input->data, &offset);
+            if(action == ADD_BOSSBAR){
+                struct bossBar* new = calloc(1, sizeof(struct bossBar));
+                new->barId = id;
+                new->title = readString(input->data, &offset);
+                new->health = readBigEndianFloat(input->data, &offset);
+                new->color = readVarInt(input->data, &offset);
+                new->division = readVarInt(input->data, &offset);
+                new->flags = readByte(input->data, &offset);
+                addElement(output->bossBars, new);
+            }
+            else{
+                listEl* el = output->bossBars->first;
+                while(el != NULL){
+                    listEl* current = el;
+                    el = el->next;
+                    struct bossBar* this = current->value;
+                    if(this->barId == id){
+                        switch (action){
+                            case REMOVE_BOSSBAR:{
+                                unlinkElement(current);
+                                freeListElement(current, (freeLikeFunction)freeBossBar);
+                                break;
+                            }
+                            case UPDATE_HEALTH:{
+                                this->health = readBigEndianFloat(input->data, &offset);
+                                break;
+                            }
+                            case UPDATE_TITLE:{
+                                free(this->title);
+                                this->title = readString(input->data, &offset);
+                                break;
+                            }
+                            case UPDATE_STYLE:{
+                                this->color = readVarInt(input->data, &offset);
+                                this->division = readVarInt(input->data, &offset);
+                                break;
+                            }
+                            case UPDATE_FLAGS:{
+                                this->flags = readByte(input->data, &offset);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             break;
         }
         case CHANGE_DIFFICULTY:{
@@ -767,8 +824,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     thisEl = thisEl->next;
                     if(((struct genericPlayer*)el->value)->id == uid){
                         unlinkElement(el);
-                        freeGenericPlayer(el->value);
-                        freeListElement(el, false);
+                        freeListElement(el, (freeLikeFunction)freeGenericPlayer);
                     }   
                 }
             }
@@ -780,10 +836,10 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             int32_t playerNumber = readVarInt(input->data, &offset);
             for(int i = 0; i < playerNumber; i++){
                 struct genericPlayer* new = calloc(1, sizeof(struct genericPlayer));
+                new->properties = initList();
                 new->id = readUUID(input->data, &offset);
                 if(actions & INFO_ADD_PLAYER){
                     new->name = readString(input->data, &offset);
-                    new->properties = initList();
                     int32_t propertyCount = readVarInt(input->data, &offset);
                     for(int p = 0; p < propertyCount; p++){
                         struct property* prop = malloc(sizeof(struct property));
@@ -844,8 +900,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     el = el->next;
                     if(((entity*)current->value)->id == eid){
                         unlinkElement(current);
-                        freeEntity(current->value);
-                        freeListElement(current, false);
+                        freeListElement(current, (freeLikeFunction)freeEntity);
                         break;
                     }
                     
@@ -865,7 +920,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                     el = el->next;
                     if(((struct entityEffect*)current->value)->effectId == effectId){
                         unlinkElement(current);
-                        freeListElement(current, true);
+                        freeListElement(current, free);
                         break;
                     }
                 }
@@ -907,7 +962,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 while(el != NULL){
                     listEl* current = el;
                     el = el->next;
-                    freeListElement(current, true);
+                    freeListElement(current, free);
                 }
             }
             output->deathLocation = readBool(input->data, &offset);
@@ -1129,7 +1184,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case SET_SUBTITLE_TEXT:{
-            //TODO implement
+            output->subtitleText = readString(input->data, &offset);
             break;
         }
         case UPDATE_TIME:{
@@ -1218,7 +1273,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
                 struct nbtQuery* q = (struct nbtQuery*)current->value;
                 if(q->id == transactionId){
                     unlinkElement(el);
-                    freeListElement(el, false);
+                    freeListElement(el, NULL);
                     size_t nbtSz = nbtSize(input->data + offset, false);
                     if(nbtSize > 0){
                         nbt_node* tag = nbt_parse(input->data + offset, nbtSz);
@@ -1353,12 +1408,13 @@ struct gamestate initGamestate(){
     g.queries = initList();
     g.player.playerEntity = initEntity();
     g.pendingChanges = initList();
+    g.bossBars = initList();
     return g;
 }
 
 void freeGamestate(struct gamestate* g){
-    freeList(g->entityList, (void(*)(void*))freeEntity);
-    freeList(g->chunks, (void(*)(void*))freeChunk);
+    freeList(g->entityList, (freeLikeFunction)freeEntity);
+    freeList(g->chunks, (freeLikeFunction)freeChunk);
     free(g->deathDimension);
     free(g->dimensionName);
     for(int i = 0; i < g->dimensions.len; i++){
@@ -1385,6 +1441,14 @@ void freeGamestate(struct gamestate* g){
     freeList(g->queries, free);
     freeEntity(g->player.playerEntity);
     freeList(g->pendingChanges, free);
+    freeList(g->bossBars, (freeLikeFunction)freeBossBar);
+}
+
+static void freeBossBar(struct bossBar* bar){
+    if(bar != NULL){
+        free(bar->title);
+        free(bar);
+    }
 }
 
 //O(n) complexity, but still should be fast-ish with just 1000 elements
@@ -1501,9 +1565,8 @@ static entity* getEntity(struct gamestate* current, int32_t eid){
 static void unloadChunk(listEl* el){
     chunk* c = el->value;
     if(c != NULL){
-        freeChunk(c);
         unlinkElement(el);
-        freeListElement(el, false);
+        freeListElement(el, (freeLikeFunction)freeChunk);
     }
 }
 
