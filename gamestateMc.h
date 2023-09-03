@@ -304,6 +304,46 @@ struct bossBar{
     byte flags;
 };
 
+struct title{
+    char* text;
+    int32_t fadeIn;
+    int32_t stay;
+    int32_t fadeOut;
+};
+
+struct commandSuggestion{
+    char* match;
+    char* tooltip;
+};
+
+struct previousMessage{
+    int32_t index;
+    byteArray signature;
+};
+
+typedef enum{
+    PASS_THROUGH=0,
+    FULLY_FILTERED=1,
+    PARTIALLY_FILTERED=2
+} filterType;
+
+struct playerMessage{
+    UUID_t sender;
+    int32_t index;
+    byteArray signature;
+    char* message;
+    int64_t timestamp;
+    int64_t salt;
+    size_t previousMessageCount;
+    struct previousMessage* previous;
+    char* unsignedContent;
+    filterType filter;
+    bitSet filterTypeBits;
+    int32_t chatType;
+    char* networkName;
+    char* networkTarget;
+};
+
 //MAYBE lists replaced with hashTables
 
 struct gamestate{
@@ -381,6 +421,7 @@ struct gamestate{
         int (*soundEffect) (int32_t soundId, identifier soundName, float range, int32_t soundCategory, int32_t X, int32_t Y, int32_t Z, float volume, float pitch, int64_t seed); //fired when a sound should be played
         int (*stopSound) (byte flags, int32_t source, identifier sound); //fired when a sound should stop
         int (*pickupItem) (entity* collected, entity* collector, int32_t count); //fired when an item is picked up
+        int (*commandSuggestions) (int32_t id, int32_t start, int32_t length, size_t count, struct commandSuggestion* suggestions);
     } eventHandlers; 
     struct worldBorder{
         double X;
@@ -409,6 +450,8 @@ struct gamestate{
     bool combat;
     listHead* bossBars;
     char* subtitleText;
+    struct title* currentTitle;
+    listHead* playerChat;
 };
 
 //Struct that contains all necessary info that determine what game features are present in our game version

@@ -80,7 +80,7 @@ typedef struct identifierArray{
 
 //A minecraft style networking packet
 typedef struct packet{
-    int size; //The size of data
+    int32_t size; //The size of data
     byte packetId;
     byte* data;
 } packet;
@@ -98,6 +98,11 @@ typedef struct palettedContainer{
     int32_t* palette;
     int32_t* states;
 } palettedContainer;
+
+typedef struct bitSet{
+    size_t length;
+    int64_t* data;
+} bitSet;
 
 #define nullPalettedContainer (palettedContainer){0, NULL, NULL}
 
@@ -341,5 +346,19 @@ int64_t readVarLong(const byte* buff, int* index);
  @return palettedContainer or nullPalettedContainer on error
 */
 palettedContainer readPalettedContainer(const byte* buff, int* index, const int bitsLowest, const int bitsThreshold, const size_t globalPaletteSize);
+
+/*!
+ @brief reads a java like bitset from the buffer at index
+ @param buff the buffer to read from
+ @param index the pointer to the index at which the value should be read, is incremented by the number of bytes read. Can be NULL, at which point index=0
+ @return the encoded bitSet
+*/
+bitSet readBitSet(const byte* buff, int* index);
+
+/*!
+ @brief compares the two byteArrays
+ @return true if the two byteArrays are identical
+*/
+bool cmpByteArray(byteArray* a, byteArray* b);
 
 #endif

@@ -418,3 +418,21 @@ palettedContainer readPalettedContainer(const byte* buff, int* index, const int 
     }
     return result;
 }
+
+bitSet readBitSet(const byte* buff, int* index){
+    getIndex(index)
+    bitSet result = {};
+    result.length = readVarInt(buff, index);
+    result.data = calloc(result.length, sizeof(int64_t));
+    for(int i = 0; i < result.length; i++){
+        result.data[i] = readBigEndianLong(buff, index);
+    }
+    return result;
+}
+
+bool cmpByteArray(byteArray* a, byteArray* b){
+    if(a->len != b->len){
+        return false;
+    }
+    return memcmp(a->bytes, b->bytes, a->len) == 0;
+}

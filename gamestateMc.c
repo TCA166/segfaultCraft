@@ -95,6 +95,12 @@ static block* initBlock(int32_t x, int32_t y, int32_t z);
 
 static void freeBossBar(struct bossBar* bar);
 
+static struct title* initTitle();
+
+static void freeTitle(struct title* title);
+
+static void freePlayerMessage(struct playerMessage* message);
+
 //Fires an event stored within gamestate
 #define event(gamestate, name, ...) \
     if(gamestate->eventHandlers.name != NULL){ \
@@ -384,11 +390,28 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case CLEAR_TITLES:{
-            //TODO: finish and figure out what is this for
+            freeTitle(output->currentTitle);
+            output->currentTitle = NULL;
             break;
         }
         case COMMAND_SUGGESTIONS_RESPONSE:{
-            //TODO: handle
+            int32_t id = readVarInt(input->data, &offset);
+            int32_t start = readVarInt(input->data, &offset);
+            int32_t length = readVarInt(input->data, &offset);
+            size_t count = (size_t)readVarInt(input->data, &offset);
+            struct commandSuggestion* arr = calloc(count, sizeof(struct commandSuggestion));
+            for(int i = 0; i < count; i++){
+                arr[i].match = readString(input->data, &offset);
+                if(readBool(input->data, &offset)){
+                    arr[i].tooltip = readString(input->data, &offset);
+                }
+            }
+            event(output, commandSuggestions, id, start, length, count, arr);
+            for(int i = 0; i < count; i++){
+                free(arr[i].match);
+                free(arr[i].tooltip);
+            }
+            free(arr);
             break;
         }
         case COMMANDS:{
@@ -458,7 +481,7 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case CHAT_SUGGESTIONS:{
-            //Unused by the notchian server
+            //TODO:Unused by the notchian server
             break;
         }
         case PLUGIN_MESSAGE:{
@@ -483,7 +506,17 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case DELETE_MESSAGE:{
-            //TODO: implement alongside the rest of the chat packets
+            byteArray signature = readByteArray(input->data, &offset);
+            listEl* el = output->playerChat->first;
+            while(el != NULL){
+                listEl* current = el;
+                el = el->next;
+                struct playerMessage* val = current->value;
+                if(cmpByteArray(&signature, &val->signature)){
+                    unlinkElement(current);
+                    freeListElement(current, (freeLikeFunction)freePlayerMessage);
+                }
+            }
             break;
         }
         case DISGUISED_CHAT_MESSAGE:{
@@ -793,7 +826,39 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case PLAYER_CHAT_MESSAGE:{
-            //TODO implement this alongside the rest of the chat system
+            struct playerMessage* new = calloc(1, sizeof(struct playerMessage));
+            new->sender = readUUID(input->data, &offset);
+            new->index = readVarInt(input->data, &offset);
+            if(readBool(input->data, &offset)){
+                new->signature = readByteArray(input->data, &offset);
+            }
+            else{
+                new->signature = nullByteArray;
+            }
+            new->message = readString(input->data, &offset);
+            new->timestamp = readBigEndianLong(input->data, &offset);
+            new->salt = readBigEndianLong(input->data, &offset);
+            new->previousMessageCount = (size_t)readVarInt(input->data, &offset);
+            new->previous = calloc(new->previousMessageCount, sizeof(struct previousMessage));
+            for(int i = 0; i < new->previousMessageCount; i++){
+                new->previous[i].index = readVarInt(input->data, &offset);
+                if(new->previous[i].index == -1){
+                    new->previous[i].signature = readByteArray(input->data, &offset);
+                }
+            }
+            if(readBool(input->data, &offset)){
+                new->unsignedContent = readString(input->data, &offset);
+            }
+            new->filter = readVarInt(input->data, &offset);
+            if(new->filter == PARTIALLY_FILTERED){
+                new->filterTypeBits = readBitSet(input->data, &offset);
+            }
+            new->chatType = readVarInt(input->data, &offset);
+            new->networkName = readString(input->data, &offset);
+            if(readBool(input->data, &offset)){
+                new->networkTarget = readString(input->data, &offset);
+            }
+            addElement(output->playerChat, new);
             break;
         }
         case END_COMBAT:{
@@ -1193,11 +1258,19 @@ int parsePlayPacket(packet* input, struct gamestate* output, const struct gameVe
             break;
         }
         case SET_TITLE_TEXT:{
-            //MAYBE what does this do?
+            if(output->currentTitle == NULL){
+                output->currentTitle = initTitle();
+            }
+            output->currentTitle->text = readString(input->data, &offset);
             break;
         }
         case SET_TITLE_ANIMATION_TIMES:{
-            //MAYBE
+            if(output->currentTitle == NULL){
+                output->currentTitle = initTitle();
+            }
+            output->currentTitle->fadeIn = readBigEndianInt(input->data, &offset);
+            output->currentTitle->stay = readBigEndianInt(input->data, &offset);
+            output->currentTitle->fadeOut = readBigEndianInt(input->data, &offset);
             break;
         }
         case ENTITY_SOUND_EFFECT:{
@@ -1409,6 +1482,7 @@ struct gamestate initGamestate(){
     g.player.playerEntity = initEntity();
     g.pendingChanges = initList();
     g.bossBars = initList();
+    g.playerChat = initList();
     return g;
 }
 
@@ -1442,6 +1516,7 @@ void freeGamestate(struct gamestate* g){
     freeEntity(g->player.playerEntity);
     freeList(g->pendingChanges, free);
     freeList(g->bossBars, (freeLikeFunction)freeBossBar);
+    freeList(g->playerChat, (freeLikeFunction)freePlayerMessage);
 }
 
 static void freeBossBar(struct bossBar* bar){
@@ -1958,4 +2033,29 @@ static block* initBlock(int32_t x, int32_t y, int32_t z){
     new->y = y;
     new->z = z;
     return new;
+}
+
+static struct title* initTitle(){
+    struct title* new = calloc(1, sizeof(struct title));
+    return new;
+}
+
+static void freeTitle(struct title* title){
+    if(title != NULL){
+        free(title->text);
+        free(title);
+    }
+}
+
+static void freePlayerMessage(struct playerMessage* message){
+    if(message != NULL){
+        free(message->filterTypeBits.data);
+        free(message->message);
+        free(message->networkName);
+        free(message->networkTarget);
+        free(message->previous);
+        free(message->signature.bytes);
+        free(message->unsignedContent);
+        free(message);
+    }
 }
